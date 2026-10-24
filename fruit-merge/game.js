@@ -195,18 +195,58 @@ function getLevelGravity(level) {
   return Math.min(1.5 + (level - 1) * 0.1, 3.0);
 }
 
+// ============ 小红书平台能力检测 ============
+var _xhsApi = (typeof window !== 'undefined' && window.xhs && window.xhs.miniTool) ? window.xhs.miniTool : null;
+
+function _hasStorageApi() {
+  return !!(_xhsApi && typeof _xhsApi.setStorage === 'function');
+}
+
+function _xhsSetStorage(key, value) {
+  if (_hasStorageApi()) {
+    try { _xhsApi.setStorage({ key: key, data: value }); } catch(e) {}
+  }
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch(e) {}
+}
+
+function _xhsGetStorage(key, fallback) {
+  if (_hasStorageApi()) {
+    try {
+      var result = _xhsApi.getStorage({ key: key });
+      if (result && result.data !== undefined && result.data !== null) return result.data;
+    } catch(e) {}
+  }
+  try {
+    var raw = localStorage.getItem(key);
+    if (raw !== null) return JSON.parse(raw);
+  } catch(e) {}
+  return fallback;
+}
+
+function _vibrateShort(type) {
+  if (_xhsApi && typeof _xhsApi.vibrateShort === 'function') {
+    try { _xhsApi.vibrateShort({ type: type || 'medium' }); } catch(e) {}
+  }
+}
+
+function _vibrateLong() {
+  if (_xhsApi && typeof _xhsApi.vibrateLong === 'function') {
+    try { _xhsApi.vibrateLong(); } catch(e) {}
+  }
+}
+
 // ============ 最高关卡 ============
 function getHighLevel() {
-  try { return parseInt(localStorage.getItem('fruit_merge_level') || '0', 10); } catch { return 0; }
+  return _xhsGetStorage('fruit_merge_level', 0);
 }
 function setHighLevel(l) {
-  try { localStorage.setItem('fruit_merge_level', l.toString()); } catch {}
+  _xhsSetStorage('fruit_merge_level', l);
 }
 function getHighScore() {
-  try { return parseInt(localStorage.getItem('fruit_merge_high') || '0', 10); } catch { return 0; }
+  return _xhsGetStorage('fruit_merge_high', 0);
 }
 function setHighScore(s) {
-  try { localStorage.setItem('fruit_merge_high', s.toString()); } catch {}
+  _xhsSetStorage('fruit_merge_high', s);
 }
 
 // ============ 主场景 ============
@@ -479,6 +519,7 @@ class GameScene extends Phaser.Scene {
     this.fruitBodies.set(newBody.id, { body: newBody, sprite, index: newIdx });
 
     sfx.merge(newIdx);
+    _vibrateShort('medium');
     this.mergeEffect(midX, midY, newFruit);
     this.floatingScore(midX, midY, newFruit.score);
 
@@ -552,6 +593,7 @@ class GameScene extends Phaser.Scene {
     this.guideGfx.clear();
 
     sfx.levelUp();
+    _vibrateLong();
 
     // 保存最高关卡
     if (this.level > this.highLevel) {
@@ -664,6 +706,7 @@ class GameScene extends Phaser.Scene {
     this.guideGfx.clear();
 
     sfx.gameOver();
+    _vibrateLong();
 
     if (this.totalScore > this.highScore) {
       this.highScore = this.totalScore;
@@ -760,7 +803,7 @@ class GameScene extends Phaser.Scene {
   shareScreenshot() {
     const renderer = this.game.renderer;
     if (renderer.type === Phaser.CANVAS) {
-      this.downloadCanvas(renderer.gameCanvas);
+      this.saveCanvas(renderer.gameCanvas);
     } else {
       renderer.snapshot((image) => {
         const canvas = document.createElement('canvas');
@@ -775,15 +818,34 @@ class GameScene extends Phaser.Scene {
         ctx.font = 'bold 14px Arial';
         ctx.textAlign = 'center';
         ctx.fillText(`合成大果果 · 第${this.level}关 · 总分${this.totalScore}`, canvas.width / 2, canvas.height - 14);
-        this.downloadCanvas(canvas);
+        this.saveCanvas(canvas);
       });
     }
   }
 
-  downloadCanvas(canvas) {
-    const link = document.createElement('a');
-    link.download = `合成大果果_第${this.level}关_${this.totalScore}分.png`;
-    link.href = canvas.toDataURL('image/png');
+  saveCanvas(canvas) {
+    var base64 = canvas.toDataURL('image/png');
+    if (_xhsApi && typeof _xhsApi.saveImageToPhotosAlbum === 'function') {
+      if (typeof _xhsApi.writeTempFile === 'function') {
+        try {
+          var tempResult = _xhsApi.writeTempFile({
+            fileName: 'fruit_merge_share.png',
+            data: base64
+          });
+          if (tempResult && tempResult.tempFilePath) {
+            _xhsApi.saveImageToPhotosAlbum({ filePath: tempResult.tempFilePath });
+            return;
+          }
+        } catch(e) {}
+      }
+      try {
+        _xhsApi.saveImageToPhotosAlbum({ filePath: base64 });
+      } catch(e) {}
+      return;
+    }
+    var link = document.createElement('a');
+    link.download = '合成大果果_第' + this.level + '关_' + this.totalScore + '分.png';
+    link.href = base64;
     link.click();
   }
 
@@ -814,4 +876,19 @@ const config = {
   scene: GameScene,
 };
 
-new Phaser.Game(config);
+var game = new Phaser.Game(config);
+
+document.addEventListener('visibilitychange', function() {
+  if (!game || !game.scene) return;
+  var scenes = game.scene.getScenes(true);
+  for (var i = 0; i < scenes.length; i++) {
+    var s = scenes[i];
+    if (document.hidden) {
+      if (s.matter && s.matter.world) s.matter.world.pause();
+      if (s.tweens) s.tweens.pauseAll();
+    } else {
+      if (s.matter && s.matter.world) s.matter.world.resume();
+      if (s.tweens) s.tweens.resumeAll();
+    }
+  }
+});
