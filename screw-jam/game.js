@@ -153,16 +153,25 @@ function rectDist(px, py, p) {
 // ============ 关卡生成 ============
 function levelParams(n) {
   return {
-    plates: Math.min(5 + n * 2, 30),
-    colors: Math.min(3 + Math.floor(n / 2), SCREW_COLORS.length),
-    shuffle: Math.min(1 + n, 9),
-    spread: Math.min(0.75 + n * 0.03, 0.95)
+    plates: Math.min(7 + n * 2, 24),
+    colors: Math.min(4 + Math.floor(n / 2), 7),
+    shuffle: Math.min(4 + n * 2, 14),
+    spread: Math.max(0.42, 0.62 - n * 0.02)
   };
 }
 
-function genLevel(n) {
-  var rng = mulberry32(n * 7919 + 13);
+// 瞎点玩家的通关率上限；会想的玩家的目标通关率（逐关降低，有下限，保证始终有解）
+function levelBar(n) {
+  return {
+    randMax: n <= 1 ? 0.3 : (n === 2 ? 0.12 : 0.05),
+    smartTarget: Math.max(0.35, 0.95 - n * 0.07)
+  };
+}
+
+function genCandidate(n, seed, shuffleScale) {
+  var rng = mulberry32(seed);
   var prm = levelParams(n);
+  if (shuffleScale !== undefined) prm.shuffle = Math.round(prm.shuffle * shuffleScale);
   var plates = [];
   var screws = [];
   var midX = (BOARD.x0 + BOARD.x1) / 2, midY = (BOARD.y0 + BOARD.y1) / 2;
@@ -175,13 +184,13 @@ function genLevel(n) {
     var hy = Math.abs(Math.sin(ang)) * len / 2 + PLATE_W / 2;
     var rx = (BOARD.x1 - BOARD.x0) / 2 - hx - 6;
     var ry = (BOARD.y1 - BOARD.y0) / 2 - hy - 6;
-    var cx = midX + (rng() * 2 - 1) * Math.max(rx, 0) * prm.spread;
+    var cx = midX + (rng() * 2 - 1) * Math.max(rx, 0) * Math.min(1, prm.spread * 1.5);
     var cy = midY + (rng() * 2 - 1) * Math.max(ry, 0) * prm.spread;
     plates.push({
       id: i, layer: i, cx: cx, cy: cy, len: len, ang: ang,
       color: PLATE_COLORS[Math.floor(rng() * PLATE_COLORS.length)],
       count: len < 150 ? 2 : 3,
-      holes: [], left: 0, falling: false, gone: false, vy: 0, spin: 0, alpha: 1
+      holes: []
     });
   }
 
@@ -200,37 +209,34 @@ function genLevel(n) {
     var span = p.len - 34;
     for (var j = 0; j < p.count; j++) {
       var t = p.count === 1 ? 0 : -span / 2 + span * j / (p.count - 1);
-      var sc = {
-        id: screws.length, plate: p.id, x: p.cx + c * t, y: p.cy + s * t,
-        color: 0, where: 'board', dx: 0, dy: 0, rot: rng() * Math.PI, scale: 1,
-        shake: 0, arrived: false, box: null, hole: -1, slot: -1
-      };
-      sc.dx = sc.x; sc.dy = sc.y;
+      var sc = { id: screws.length, plate: p.id, x: p.cx + c * t, y: p.cy + s * t, color: 0, rot: rng() * Math.PI };
       p.holes.push({ x: sc.x, y: sc.y });
       screws.push(sc);
     }
-    p.left = p.count;
   });
 
-  // 模拟一个合法的拆解顺序，按顺序每 3 颗分一种颜色，保证至少有一种解法
-  var left = {};
-  plates.forEach(function (p) { left[p.id] = p.count; });
-  var removed = {};
+  // 每颗螺丝被哪些更上层的板子压着，几何关系不变，预先算好
+  var coverBy = screws.map(function (sc) {
+    var lay = plates[sc.plate].layer, list = [];
+    plates.forEach(function (pl) {
+      if (pl.layer > lay && rectDist(sc.x, sc.y, pl) < SCREW_R * 0.8) list.push(pl.id);
+    });
+    return list;
+  });
+
+  // 按一个合法的拆解顺序分颜色，再打乱一部分，逼玩家用暂存区周转
+  var left = plates.map(function (p) { return p.count; });
+  var removed = [];
   var order = [];
   while (order.length < screws.length) {
-    var free = screws.filter(function (sc) {
-      if (removed[sc.id]) return false;
-      var lay = plates[sc.plate].layer;
-      for (var q = 0; q < plates.length; q++) {
-        var pl = plates[q];
-        if (pl.layer > lay && left[pl.id] > 0 && rectDist(sc.x, sc.y, pl) < SCREW_R * 0.8) return false;
-      }
-      return true;
-    });
+    var free = [];
+    for (var f = 0; f < screws.length; f++) {
+      if (!removed[f] && coverBy[f].every(function (pid) { return left[pid] === 0; })) free.push(f);
+    }
     var pick = free[Math.floor(rng() * free.length)];
-    removed[pick.id] = true;
-    left[pick.plate]--;
-    order.push(pick.id);
+    removed[pick] = true;
+    left[screws[pick].plate]--;
+    order.push(pick);
   }
 
   var queue = [];
@@ -249,7 +255,124 @@ function genLevel(n) {
   }
   order.forEach(function (sid, idx) { screws[sid].color = seq[idx]; });
 
-  return { plates: plates, screws: screws, queue: queue };
+  return { plates: plates, screws: screws, queue: queue, coverBy: coverBy };
+}
+
+// 按游戏规则快速模拟一局（无动画）。smart 为 false 是瞎点，为 true 是会想的玩家
+function simulate(g, smart, rng) {
+  var n = g.screws.length;
+  var left = g.plates.map(function (p) { return p.count; });
+  var removed = [];
+  var queue = g.queue.slice();
+  var boxes = [null, null];
+  var slots = [];
+  var done = 0;
+
+  function nextBox(i) { boxes[i] = queue.length ? { c: queue.shift(), n: 0 } : null; }
+  function boxFor(c) {
+    for (var i = 0; i < 2; i++) if (boxes[i] && boxes[i].c === c && boxes[i].n < 3) return boxes[i];
+    return null;
+  }
+  function settle() {
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (var i = 0; i < 2; i++) {
+        if (boxes[i] && boxes[i].n === 3) { done += 3; nextBox(i); changed = true; }
+        var b = boxes[i];
+        if (!b) continue;
+        for (var j = slots.length - 1; j >= 0 && b.n < 3; j--) {
+          if (slots[j] === b.c) { slots.splice(j, 1); b.n++; changed = true; }
+        }
+      }
+    }
+  }
+
+  nextBox(0);
+  nextBox(1);
+  for (var guard = 0; guard <= n; guard++) {
+    if (done >= n) return true;
+    var free = [];
+    for (var s = 0; s < n; s++) {
+      if (removed[s]) continue;
+      var cb = g.coverBy[s], ok = true;
+      for (var q = 0; q < cb.length; q++) if (left[cb[q]] > 0) { ok = false; break; }
+      if (ok) free.push(s);
+    }
+    if (!free.length) return false;
+    var pick = -1;
+    if (!smart) {
+      pick = free[Math.floor(rng() * free.length)];
+    } else {
+      var boxMoves = free.filter(function (id) { return boxFor(g.screws[id].color); });
+      if (boxMoves.length) {
+        pick = boxMoves[Math.floor(rng() * boxMoves.length)];
+      } else {
+        if (slots.length >= BASE_SLOTS) return false;
+        var best = -1e9;
+        free.forEach(function (id) {
+          var c = g.screws[id].color, score = rng() * 1.2;
+          slots.forEach(function (x) { if (x === c) score += 2; });
+          if (left[g.screws[id].plate] === 1) score += 1;
+          if (score > best) { best = score; pick = id; }
+        });
+      }
+    }
+    var color = g.screws[pick].color;
+    var box = boxFor(color);
+    if (box) box.n++;
+    else if (slots.length < BASE_SLOTS) slots.push(color);
+    else return false;
+    removed[pick] = true;
+    left[g.screws[pick].plate]--;
+    settle();
+  }
+  return done >= n;
+}
+
+function winRate(g, smart, runs, seed) {
+  var rng = mulberry32(seed), wins = 0;
+  for (var i = 0; i < runs; i++) if (simulate(g, smart, rng)) wins++;
+  return wins / runs;
+}
+
+// 生成若干候选，挑「会想能过、瞎点难过」的那一个；同一关每次结果相同
+var levelCache = {};
+function pickLevel(n) {
+  if (levelCache[n]) return levelCache[n];
+  var bar = levelBar(n);
+  var best = null, bestScore = -1e9;
+  for (var attempt = 0; attempt < 30; attempt++) {
+    // 后一半候选把打乱程度减半，避免高关卡一个能解的都没有
+    var g = genCandidate(n, n * 7919 + 13 + attempt * 104729, attempt < 15 ? 1 : 0.5);
+    var smartRate = winRate(g, true, 60, attempt + 1);
+    if (smartRate === 0) continue;
+    var randRate = winRate(g, false, 40, attempt + 77);
+    var score = -Math.abs(smartRate - bar.smartTarget) * 4
+      - Math.max(0, randRate - bar.randMax) * 10
+      + (smartRate >= 0.2 ? 1 : 0);
+    if (score > bestScore) { best = g; bestScore = score; }
+  }
+  // 极端情况下 30 个候选都没解，就退回到不打乱颜色的版本，它一定有解
+  if (!best) best = genCandidate(n, n * 7919 + 13, 0);
+  levelCache[n] = best;
+  return best;
+}
+
+// 每次开局复制一份，保证重来时布局一致
+function genLevel(n) {
+  var g = pickLevel(n);
+  return {
+    queue: g.queue.slice(),
+    plates: g.plates.map(function (p) {
+      return { id: p.id, layer: p.layer, cx: p.cx, cy: p.cy, len: p.len, ang: p.ang, color: p.color,
+        count: p.count, holes: p.holes.slice(), left: p.count, falling: false, gone: false, vy: 0, spin: 0, alpha: 1 };
+    }),
+    screws: g.screws.map(function (s) {
+      return { id: s.id, plate: s.plate, x: s.x, y: s.y, color: s.color, where: 'board', dx: s.x, dy: s.y,
+        rot: s.rot, scale: 1, shake: 0, arrived: false, box: null, hole: -1, slot: -1 };
+    })
+  };
 }
 
 // ============ 游戏状态 ============
@@ -388,6 +511,7 @@ function isCovered(sc) {
 }
 
 function tapScrew(sc) {
+  if (S.busy > 0 && !pickTarget(sc)) return;
   if (isCovered(sc)) {
     sc.shake = 0.3;
     sfx.blocked();
@@ -395,9 +519,9 @@ function tapScrew(sc) {
   }
   var tgt = pickTarget(sc);
   if (!tgt) {
+    // 暂存区已满还拧下一颗放不下的螺丝，直接判输
     sc.shake = 0.3;
-    sfx.blocked();
-    toast('暂存区满了，先拧能直接进盒子的');
+    fail();
     return;
   }
   sfx.pick();
@@ -916,7 +1040,8 @@ $('nav-help').addEventListener('click', function () {
     html: '<ol><li>点没被挡住的螺丝，它会自己飞进同色盒子，一盒装 3 颗。</li>' +
           '<li>没有同色盒子时，螺丝先放进暂存区，暂存区只有 5 格。</li>' +
           '<li>板子上的螺丝拧完，板子会掉下去，露出下面那层。</li>' +
-          '<li>暂存区满了算失败，发一篇笔记可以复活一次。</li></ol>',
+          '<li>暂存区满了以后，再拧一颗放不下的螺丝就算输，所以要先拧能直接进盒子的。</li>' +
+          '<li>输了可以发一篇笔记复活一次，暂存区多 3 格。</li></ol>',
     main: '知道了',
     onMain: closeDialog
   });
