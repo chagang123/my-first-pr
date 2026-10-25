@@ -6,7 +6,9 @@ var COLS = 13, ROWS = 21, T = 30;
 var W = COLS * T, H = ROWS * T;
 var FLOOR = 0, WALL = 1, BLOCK = 2, SPOT = 3;
 var PLAYER_R = T * 0.32;
-var PLAYER_SPEED = 3.2 * T;          // 像素/秒
+var PLAYER_SPEED = 6 * T;            // 键盘操作时的速度，像素/秒
+var DRAG_MAX = 14 * T;               // 跟手拖动的最高速度
+var DRAG_CARRY = T * 0.25;           // 划太快时最多补走这么多，超出的直接丢掉，避免手停了人还在滑
 var WARN_TILES = 7;
 var HIDE_DELAY = 0.25;
 var PROTECT_S = 3;
@@ -375,7 +377,7 @@ function castRay(map, x0, y0, ang, range) {
 
 // ============ 游戏状态 ============
 var S = null;
-var input = { active: false, ox: 0, oy: 0, x: 0, y: 0, keys: {} };
+var input = { active: false, lastX: 0, lastY: 0, pendX: 0, pendY: 0, keys: {} };
 
 // 无限模式：固定地图，每隔几秒多一个人
 var ENDLESS_MAP = 7;
@@ -550,27 +552,35 @@ function caught(s, how) {
 
 function movePlayer(dt) {
   var p = S.player;
-  var vx = 0, vy = 0;
-  if (input.active) {
-    var dx = input.x - input.ox, dy = input.y - input.oy;
-    var len = Math.sqrt(dx * dx + dy * dy);
-    if (len > 6) {
-      var k = Math.min(1, len / 40);
-      vx = dx / len * k; vy = dy / len * k;
-    }
+  var mx = 0, my = 0;
+
+  // 跟手：手指挪多少，小人就走多少
+  var pl = Math.sqrt(input.pendX * input.pendX + input.pendY * input.pendY);
+  if (pl > 0.2) {
+    var maxStep = DRAG_MAX * dt;
+    var k = pl > maxStep ? maxStep / pl : 1;
+    mx = input.pendX * k; my = input.pendY * k;
+    input.pendX -= mx; input.pendY -= my;
+    var rest = Math.sqrt(input.pendX * input.pendX + input.pendY * input.pendY);
+    if (rest > DRAG_CARRY) { input.pendX *= DRAG_CARRY / rest; input.pendY *= DRAG_CARRY / rest; }
+  } else {
+    input.pendX = 0; input.pendY = 0;
   }
-  if (input.keys.left) vx -= 1;
-  if (input.keys.right) vx += 1;
-  if (input.keys.up) vy -= 1;
-  if (input.keys.down) vy += 1;
-  var m = Math.sqrt(vx * vx + vy * vy);
-  if (m > 1) { vx /= m; vy /= m; m = 1; }
+
+  var kx = 0, ky = 0;
+  if (input.keys.left) kx -= 1;
+  if (input.keys.right) kx += 1;
+  if (input.keys.up) ky -= 1;
+  if (input.keys.down) ky += 1;
+  var km = Math.sqrt(kx * kx + ky * ky);
+  if (km > 0) { mx += kx / km * PLAYER_SPEED * dt; my += ky / km * PLAYER_SPEED * dt; }
+
+  var m = Math.sqrt(mx * mx + my * my);
   p.moving = m > 0.05;
 
   if (p.moving) {
-    p.dir = Math.atan2(vy, vx);
-    var step = PLAYER_SPEED * dt;
-    var nx = p.x + vx * step, ny = p.y + vy * step;
+    p.dir = Math.atan2(my, mx);
+    var nx = p.x + mx, ny = p.y + my;
     if (!hitsWall(nx, p.y)) p.x = nx;
     if (!hitsWall(p.x, ny)) p.y = ny;
     p.still = 0;
@@ -997,26 +1007,13 @@ function render() {
     }
   });
 
-  // 拖动摇杆
-  if (input.active && S.status === 'play') {
-    var r = cv.getBoundingClientRect();
-    var ox = (input.ox - r.left - view.ox) / view.scale, oy = (input.oy - r.top - view.oy) / view.scale;
-    var kx = (input.x - r.left - view.ox) / view.scale, ky = (input.y - r.top - view.oy) / view.scale;
-    var dx = kx - ox, dy = ky - oy, d = Math.sqrt(dx * dx + dy * dy), lim = 40 / view.scale;
-    if (d > lim) { kx = ox + dx / d * lim; ky = oy + dy / d * lim; }
-    ctx.beginPath(); ctx.arc(ox, oy, lim, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.beginPath(); ctx.arc(kx, ky, 16 / view.scale, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(102,220,255,0.55)'; ctx.fill();
-  }
 
   if (S.status === 'play') {
     var tip = '';
     if (S.protect > 0) tip = '隐身中 ' + Math.ceil(S.protect);
     else if (danger) tip = '有人来翻了，快跑';
     else if (S.noticeT > 0) tip = '又来一个人找你，现在 ' + S.seekers.length + ' 个';
-    else if (!p.hidden && tileAt(S.map, p.x, p.y) === SPOT) tip = '松手就能躲进去';
+    else if (!p.hidden && tileAt(S.map, p.x, p.y) === SPOT) tip = '停下来就能躲进去';
     if (tip) {
       ctx.font = '800 15px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
       ctx.textAlign = 'center';
@@ -1055,8 +1052,13 @@ document.addEventListener('visibilitychange', function () {
 });
 
 // ============ 输入 ============
-function onDown(x, y) { initAudio(); input.active = true; input.ox = input.x = x; input.oy = input.y = y; }
-function onMove(x, y) { if (input.active) { input.x = x; input.y = y; } }
+function onDown(x, y) { initAudio(); input.active = true; input.lastX = x; input.lastY = y; input.pendX = 0; input.pendY = 0; }
+function onMove(x, y) {
+  if (!input.active) return;
+  input.pendX += (x - input.lastX) / view.scale;
+  input.pendY += (y - input.lastY) / view.scale;
+  input.lastX = x; input.lastY = y;
+}
 function onUp() { input.active = false; }
 
 if (window.PointerEvent) {
@@ -1161,9 +1163,9 @@ $('nav-help').addEventListener('click', function () {
   openDialog({
     kicker: '怎么玩',
     title: '玩法说明',
-    html: '<ol><li>手指按住屏幕任意位置拖动，小人就往那个方向走。</li>' +
+    html: '<ol><li>手指按住屏幕任意位置拖动，小人跟着手指走；手指停下，小人也停下。</li>' +
           '<li>被手电照到会被追，被抓到就输；撑到倒计时结束就过关。</li>' +
-          '<li>站到衣柜或纸箱上松手，就躲进去了，手电照不到你。</li>' +
+          '<li>走到衣柜或纸箱上停一下，就躲进去了，手电照不到你。</li>' +
           '<li>他们会随机来翻藏身点，藏身点闪红光时赶紧换地方。当着他们的面躲进去没用。</li>' +
           '<li>输了可以发一篇笔记复活一次，找你的人回到起点，你隐身 3 秒。</li>' +
           '<li>无限模式没有终点，每 ' + ENDLESS_EVERY + ' 秒多一个人找你，撑的秒数会上排行榜。</li></ol>',
