@@ -329,6 +329,40 @@ svg .dot { fill: currentColor; stroke: none; }
 #dlg-body li + li { margin-top: 6px; }
 #dlg-main { margin-top: 22px; height: 52px; font-size: 18px; }
 
+/* 模式切换 */
+.mode-tabs { display: flex; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.mode-tabs button {
+  flex: 1;
+  height: 46px;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--muted);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+}
+.mode-tabs button.active { color: var(--ink); border-bottom-color: var(--cyan); }
+
+/* 排行榜 */
+.rk-periods { display: flex; margin: 2px 0 10px; border-radius: 10px; background: var(--raise); padding: 3px; }
+.rk-periods button { flex: 1; height: 32px; border-radius: 8px; font-size: 14px; font-weight: 700; color: var(--muted); }
+.rk-periods button.active { background: var(--cyan); color: var(--cyan-ink); }
+.rk-list { max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.rk-row { display: flex; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.rk-no { width: 34px; font-size: 16px; font-weight: 800; color: var(--muted); }
+.rk-row.top .rk-no { color: var(--cyan); }
+.rk-ava {
+  width: 30px; height: 30px; border-radius: 15px; margin-right: 10px;
+  background: var(--raise); overflow: hidden; flex: 0 0 30px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: var(--muted);
+}
+.rk-ava img { width: 100%; height: 100%; display: block; }
+.rk-name { flex: 1; font-size: 15px; color: #e6e8eb; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rk-score { font-size: 16px; font-weight: 800; color: var(--ink); margin-left: 8px; }
+.rk-mine { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--raise); font-size: 14px; color: #c9ced6; }
+.rk-mine b { color: var(--cyan); }
+.rk-empty { padding: 26px 0; text-align: center; font-size: 14px; color: var(--muted); }
+
 /* 选关 */
 .lv-grid { display: flex; flex-wrap: wrap; margin: 4px -4px 0; }
 .lv-grid button {

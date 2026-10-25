@@ -52,16 +52,82 @@ async function canUse(method, minVersion) {
   return Math.floor(v / 1000) >= minVersion;
 }
 
-async function saveData(obj) {
-  var str;
-  try { str = JSON.stringify(obj); } catch (e) { return false; }
+async function saveLocal(str) {
   if (await canUse('setStorage', 9460)) {
     try { await miniTool.setStorage({ key: STORE_KEY, data: str }); return true; } catch (e) { /* 退回本地存储 */ }
   }
   try { localStorage.setItem(STORE_KEY, str); return true; } catch (e) { return false; }
 }
 
+// ============ 云存储（内测能力，需平台为 appId 开通；不可用时只用本地存档） ============
+var CLOUD_COLL = 'save';
+// ok：本次启动读云端成功才允许写，避免读失败时又新建一条重复存档
+// unknown：写入结果未知时本次不再写，下次启动读云端对账
+var cloud = { ok: false, id: null, unknown: false, chain: Promise.resolve() };
+
+function hasCloud() {
+  return !!(miniTool && typeof miniTool.queryCloudStorage === 'function' &&
+    typeof miniTool.addCloudStorage === 'function' && typeof miniTool.updateCloudStorage === 'function');
+}
+
+function mergeSave(local, remote) {
+  if (!local) return remote;
+  if (!remote) return local;
+  return {
+    level: Math.max(local.level | 0, remote.level | 0),
+    best: Math.max(local.best | 0, remote.best | 0),
+    endlessBest: Math.max(Number(local.endlessBest) || 0, Number(remote.endlessBest) || 0),
+    muted: local.muted !== undefined ? !!local.muted : !!remote.muted,
+    mode: local.mode || remote.mode
+  };
+}
+
+async function writeCloud(obj) {
+  var content = { level: obj.level, best: obj.best, endlessBest: obj.endlessBest, muted: !!obj.muted, mode: obj.mode };
+  try {
+    var r = cloud.id
+      ? await miniTool.updateCloudStorage({ collection: CLOUD_COLL, items: [{ id: cloud.id, content: content }] })
+      : await miniTool.addCloudStorage({ collection: CLOUD_COLL, items: [{ content: content }] });
+    var it = r && r.data && r.data[0];
+    if (it && it.status === 'SUCCESS' && it.id) cloud.id = it.id;
+    else if (it && it.status === 'UNKNOWN') cloud.unknown = true;
+  } catch (e) {
+    var c = e && e.errCode;
+    if (c === 2004) cloud.unknown = true;
+    else if (c === 1006 || c === 10003) cloud.ok = false;
+  }
+}
+
+async function saveData(obj) {
+  var str;
+  try { str = JSON.stringify(obj); } catch (e) { return false; }
+  var ok = await saveLocal(str);
+  if (cloud.ok && !cloud.unknown) {
+    var snapshot = JSON.parse(str);
+    cloud.chain = cloud.chain.then(function () { return writeCloud(snapshot); });
+  }
+  return ok;
+}
+
 async function loadData() {
+  var local = await loadLocal();
+  if (!hasCloud()) return local;
+  try {
+    var r = await miniTool.queryCloudStorage({ collection: CLOUD_COLL });
+    var merged = local;
+    ((r && r.items) || []).forEach(function (it) {
+      if (!it || !it.content) return;
+      merged = mergeSave(merged, it.content);
+      if (!cloud.id) cloud.id = it.id;
+    });
+    cloud.ok = true;
+    return merged;
+  } catch (e) {
+    return local;
+  }
+}
+
+async function loadLocal() {
   var raw = null;
   if (await canUse('getStorage', 9460)) {
     try {
@@ -87,7 +153,7 @@ function vibrate(type) {
 
 // ============ 音效 ============
 var audio = null;
-var saveState = { level: 1, best: 0, muted: false };
+var saveState = { level: 1, best: 0, endlessBest: 0, muted: false, mode: 'level' };
 
 function initAudio() {
   if (audio) {
@@ -311,14 +377,24 @@ function castRay(map, x0, y0, ang, range) {
 var S = null;
 var input = { active: false, ox: 0, oy: 0, x: 0, y: 0, keys: {} };
 
-function startLevel(n) {
-  var map = genMap(n);
-  var prm = levelParams(n);
+// 无限模式：固定地图，每隔几秒多一个人
+var ENDLESS_MAP = 7;
+var ENDLESS_EVERY = 5;
+
+function endlessParams() {
+  return { seekers: 1, walk: 2.1 * T, run: 3.15 * T, range: 5 * T, half: 0.6, check: 0.4, time: 0 };
+}
+
+function startLevel(n, endless) {
+  var map = genMap(endless ? ENDLESS_MAP : n);
+  var prm = endless ? endlessParams() : levelParams(n);
   S = {
+    mode: endless ? 'endless' : 'level',
     level: n, prm: prm, map: map,
     player: { x: (map.playerStart.x + 0.5) * T, y: (map.playerStart.y + 0.5) * T, dir: 0, hidden: false, still: 0, moving: false },
     seekers: [],
     left: prm.time, total: prm.time,
+    elapsed: 0, nextSpawn: ENDLESS_EVERY, maxSeekers: prm.seekers, noticeT: 0, rank: null,
     status: 'play', revived: false, reviveReady: false,
     protect: 0, spotted: 0, clock: 0, lastTick: 99, warned: false,
     caughtBy: '', floats: []
@@ -340,6 +416,26 @@ function newSeeker(st) {
 }
 
 function tileOf(o) { return { x: Math.floor(o.x / T), y: Math.floor(o.y / T) }; }
+
+// 离玩家足够远的空地；地图太小时退而求其次取最远的那一圈
+function farTile(minD) {
+  var pt = tileOf(S.player), d = bfs(S.map, pt.x, pt.y), maxD = 0, list = [];
+  S.map.floors.forEach(function (f) { if (d[idx(f.x, f.y)] > maxD) maxD = d[idx(f.x, f.y)]; });
+  var need = Math.min(minD, maxD);
+  S.map.floors.forEach(function (f) { if (d[idx(f.x, f.y)] >= need) list.push(f); });
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function spawnSeeker() {
+  var s = newSeeker(farTile(9));
+  say(s, '+1');
+  S.seekers.push(s);
+  S.maxSeekers = Math.max(S.maxSeekers, S.seekers.length);
+  S.nextSpawn += ENDLESS_EVERY;
+  S.noticeT = 1.6;
+  sfx.warn();
+  vibrate('light');
+}
 
 function rawSee(s, p) {
   var dx = p.x - s.x, dy = p.y - s.y;
@@ -531,12 +627,20 @@ function step(dt) {
   if (danger && !S.warned) { S.warned = true; sfx.warn(); vibrate('light'); }
   if (!danger) S.warned = false;
 
-  S.left -= dt;
-  var whole = Math.ceil(S.left);
-  if (whole <= 5 && whole !== S.lastTick && whole > 0) { S.lastTick = whole; sfx.tick(); }
-  if (S.left <= 0) { S.left = 0; win(); }
+  if (S.noticeT > 0) S.noticeT -= dt;
+  if (S.mode === 'endless') {
+    S.elapsed += dt;
+    if (S.elapsed >= S.nextSpawn) spawnSeeker();
+  } else {
+    S.left -= dt;
+    var whole = Math.ceil(S.left);
+    if (whole <= 5 && whole !== S.lastTick && whole > 0) { S.lastTick = whole; sfx.tick(); }
+    if (S.left <= 0) { S.left = 0; win(); }
+  }
   updateBar();
 }
+
+function endlessScore() { return Math.round(S.elapsed * 10) / 10; }
 
 function win() {
   S.status = 'win';
@@ -552,12 +656,24 @@ function fail() {
   S.status = 'fail';
   sfx.fail();
   vibrate('heavy');
+  if (S.mode === 'endless') {
+    var score = endlessScore();
+    S.newBest = score > (saveState.endlessBest || 0);
+    if (S.newBest) { saveState.endlessBest = score; saveData(saveState); }
+    var run = S;
+    submitEndless(score).then(function (r) {
+      run.rank = r;
+      if (S === run && !$('overlay').classList.contains('hidden') && r) $('r-hint').textContent = endlessHint(run);
+    });
+    setTimeout(showEndlessFail, 700);
+    return;
+  }
   setTimeout(showFail, 700);
 }
 
 function revive() {
   S.seekers.forEach(function (s, i) {
-    var st = S.map.seekerStarts[i];
+    var st = S.mode === 'endless' ? farTile(9) : S.map.seekerStarts[i];
     s.x = (st.x + 0.5) * T; s.y = (st.y + 0.5) * T;
     s.state = 'look'; s.lookT = 1.2; s.path = null; s.knowSpot = null; s.checking = false; s.bubble = '';
   });
@@ -899,6 +1015,7 @@ function render() {
     var tip = '';
     if (S.protect > 0) tip = '隐身中 ' + Math.ceil(S.protect);
     else if (danger) tip = '有人来翻了，快跑';
+    else if (S.noticeT > 0) tip = '又来一个人找你，现在 ' + S.seekers.length + ' 个';
     else if (!p.hidden && tileAt(S.map, p.x, p.y) === SPOT) tip = '松手就能躲进去';
     if (tip) {
       ctx.font = '800 15px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
@@ -970,34 +1087,68 @@ function showHome() {
   drawHero();
 }
 
-function showGame(level) {
+function showGame(level, endless) {
   initAudio();
   $('home').classList.add('hidden');
   $('game').classList.remove('hidden');
   resizeGame();
-  startLevel(level);
+  startLevel(level, endless);
   inGame = true;
 }
 
+function fmtSec(v) { return (Math.round(v * 10) / 10).toFixed(1); }
+
 function renderHome() {
-  $('home-best').innerHTML = saveState.best > 0
-    ? '最高通关 <b>第 ' + saveState.best + ' 关</b>'
-    : '第 1 关只有 1 个人在找你，先熟悉一下';
-  $('btn-start').innerHTML = (saveState.level > 1 ? '继续第 ' + saveState.level + ' 关' : '开始挑战') + ARROW;
+  var endless = saveState.mode === 'endless';
+  $('tab-level').classList.toggle('active', !endless);
+  $('tab-endless').classList.toggle('active', endless);
+  if (endless) {
+    $('home-best').innerHTML = saveState.endlessBest > 0
+      ? '无限模式最佳 <b>' + fmtSec(saveState.endlessBest) + ' 秒</b>'
+      : '每 ' + ENDLESS_EVERY + ' 秒多一个人找你，看你能撑多久';
+    $('btn-start').innerHTML = '开始无限模式' + ARROW;
+  } else {
+    $('home-best').innerHTML = saveState.best > 0
+      ? '最高通关 <b>第 ' + saveState.best + ' 关</b>'
+      : '第 1 关只有 1 个人在找你，先熟悉一下';
+    $('btn-start').innerHTML = (saveState.level > 1 ? '继续第 ' + saveState.level + ' 关' : '开始挑战') + ARROW;
+  }
   $('nav-sound').classList.toggle('muted', !!saveState.muted);
   $('sound-label').textContent = saveState.muted ? '声音 关' : '声音 开';
   renderFollow();
 }
 
 function updateBar() {
+  if (S.mode === 'endless') {
+    $('level').textContent = '无限模式';
+    $('progress').textContent = '已撑 ' + fmtSec(S.elapsed) + ' 秒 · ' + S.seekers.length + ' 人在找你';
+    $('bar-fill').style.width = ((S.elapsed % ENDLESS_EVERY) / ENDLESS_EVERY * 100) + '%';
+    return;
+  }
   $('level').textContent = '第 ' + S.level + ' 关';
   $('progress').textContent = '还要躲 ' + Math.ceil(S.left) + ' 秒 · ' + S.seekers.length + ' 人在找你';
   $('bar-fill').style.width = Math.min(100, (1 - S.left / S.total) * 100) + '%';
 }
 
-$('btn-start').addEventListener('click', function () { showGame(saveState.level); });
+function restartRun() { initAudio(); startLevel(S.level, S.mode === 'endless'); }
+
+$('btn-start').addEventListener('click', function () {
+  if (saveState.mode === 'endless') showGame(1, true); else showGame(saveState.level);
+});
 $('btn-back').addEventListener('click', showHome);
-$('btn-restart').addEventListener('click', function () { initAudio(); startLevel(S.level); });
+$('btn-restart').addEventListener('click', restartRun);
+
+['tab-level', 'tab-endless'].forEach(function (id) {
+  $(id).addEventListener('click', function () {
+    var m = $(id).getAttribute('data-mode');
+    if (saveState.mode === m) return;
+    saveState.mode = m;
+    saveData(saveState);
+    renderHome();
+  });
+});
+
+$('nav-rank').addEventListener('click', function () { openRank('day'); });
 
 $('nav-sound').addEventListener('click', function () {
   saveState.muted = !saveState.muted;
@@ -1014,7 +1165,8 @@ $('nav-help').addEventListener('click', function () {
           '<li>被手电照到会被追，被抓到就输；撑到倒计时结束就过关。</li>' +
           '<li>站到衣柜或纸箱上松手，就躲进去了，手电照不到你。</li>' +
           '<li>他们会随机来翻藏身点，藏身点闪红光时赶紧换地方。当着他们的面躲进去没用。</li>' +
-          '<li>输了可以发一篇笔记复活一次，找你的人回到起点，你隐身 3 秒。</li></ol>',
+          '<li>输了可以发一篇笔记复活一次，找你的人回到起点，你隐身 3 秒。</li>' +
+          '<li>无限模式没有终点，每 ' + ENDLESS_EVERY + ' 秒多一个人找你，撑的秒数会上排行榜。</li></ol>',
     main: '知道了',
     onMain: closeDialog
   });
@@ -1178,7 +1330,7 @@ function fillSheet(o) {
   main.onclick = o.onMain;
   $('r-note').textContent = o.note || '';
 
-  [['r-second', 'second', 'onSecond'], ['r-third', 'third', 'onThird']].forEach(function (b) {
+  [['r-second', 'second', 'onSecond'], ['r-third', 'third', 'onThird'], ['r-fourth', 'fourth', 'onFourth']].forEach(function (b) {
     var el = $(b[0]);
     el.textContent = o[b[1]] || '';
     el.classList.toggle('hidden', !o[b[1]]);
@@ -1217,6 +1369,43 @@ function showFail() {
   fillSheet(o);
 }
 
+function endlessHint(run) {
+  var r = run.rank;
+  var rankText = '';
+  if (r && r.status === 'EXACT') rankText = '今天排第 ' + r.rank + ' 名';
+  else if (r && r.status === 'OVER_LIMIT') rankText = '今天排在 10000 名以外';
+  if (run.newBest) return '新纪录！' + (rankText ? ' · ' + rankText : '');
+  var gap = (saveState.endlessBest || 0) - endlessScore();
+  return rankText || ('离最佳还差 ' + fmtSec(Math.max(0, gap)) + ' 秒');
+}
+
+function showEndlessFail() {
+  var canRevive = !S.revived;
+  var o = {
+    kicker: '无限模式 · 本局成绩',
+    num: fmtSec(S.elapsed),
+    unit: '秒',
+    tag: S.newBest ? '新纪录' : '本局',
+    title: S.caughtBy === 'spot' ? '被翻出来了' : '被抓到了',
+    sub: canRevive ? '所有人被送到远处，你还能隐身 3 秒。' : '这局的复活机会用过了，再来一局吧。',
+    stats: [['最多同时', S.maxSeekers + ' 人'], ['被发现', S.spotted + ' 次'], ['历史最佳', fmtSec(saveState.endlessBest || 0) + ' 秒']],
+    pct: saveState.endlessBest ? S.elapsed / saveState.endlessBest : 1,
+    hint: endlessHint(S)
+  };
+  var again = function () { startLevel(1, true); };
+  if (canRevive) {
+    o.main = '发笔记复活'; o.mainArrow = true; o.onMain = onReviveClick;
+    o.note = '发布成功后手动继续 · 每局一次 · 3 秒隐身';
+    o.second = '再来一局'; o.onSecond = again;
+  } else {
+    o.main = '再来一局'; o.mainArrow = true; o.onMain = again;
+    o.second = '发笔记晒成绩'; o.onSecond = function () { shareNote(false); };
+  }
+  o.third = '看排行榜'; o.onThird = function () { openRank('day'); };
+  o.fourth = '返回主页'; o.onFourth = showHome;
+  fillSheet(o);
+}
+
 function showWin() {
   fillSheet({
     kicker: '第 ' + S.level + ' 关 · 本局成绩',
@@ -1233,7 +1422,8 @@ function showWin() {
     second: '发笔记晒成绩',
     onSecond: function () { shareNote(false); },
     third: '返回主页',
-    onThird: showHome
+    onThird: showHome,
+    fourth: ''
   });
 }
 
@@ -1260,6 +1450,162 @@ async function onReviveClick() {
   }
 }
 
+// ============ 排行榜（内测能力，需平台为 appId 开通；无限模式按撑的秒数排） ============
+var BOARD = 1;
+var PERIODS = [['day', '日榜'], ['week', '周榜'], ['month', '月榜'], ['all', '总榜']];
+var rankOff = false;
+var rankReq = 0;
+
+function hasRank() {
+  return !!(miniTool && typeof miniTool.submitScore === 'function' &&
+    typeof miniTool.getRankList === 'function' && typeof miniTool.getMyRank === 'function');
+}
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+// 2002 是榜单还没算好，不能当成空榜，按 0.5/1/2/4 秒退避重试
+async function withRetry(fn) {
+  var waits = [500, 1000, 2000, 4000];
+  for (var i = 0; ; i++) {
+    try { return await fn(); } catch (e) {
+      if (e && e.errCode === 2002 && i < waits.length) { await sleep(waits[i]); continue; }
+      throw e;
+    }
+  }
+}
+
+function rankError(e) {
+  var c = e && e.errCode;
+  if (c === 1005 || c === 10003) { rankOff = true; return '排行榜还没开通'; }
+  if (c === 2002) return '榜单还在计算，稍后再看';
+  if (c === 2008) return '排行榜暂时连不上，稍后再试';
+  return '排行榜加载失败，稍后再试';
+}
+
+async function submitEndless(score) {
+  if (!hasRank() || rankOff) return null;
+  try {
+    await miniTool.submitScore({ board: BOARD, score: score });
+    return await withRetry(function () { return miniTool.getMyRank({ board: BOARD, period: 'day' }); });
+  } catch (e) {
+    rankError(e);
+    return null;
+  }
+}
+
+function openRank(period) {
+  var tabs = '<div class="rk-periods">';
+  PERIODS.forEach(function (p) {
+    tabs += '<button type="button" data-period="' + p[0] + '"' + (p[0] === period ? ' class="active"' : '') + '>' + p[1] + '</button>';
+  });
+  tabs += '</div>';
+  openDialog({
+    kicker: '无限模式 · 撑得越久排越前',
+    title: '排行榜',
+    html: tabs + '<div class="rk-list" id="rk-list"></div><div class="rk-mine" id="rk-mine"></div>',
+    main: '关闭',
+    onMain: closeDialog
+  });
+  loadRank(period);
+}
+
+function emptyNote(el, text) {
+  el.innerHTML = '';
+  var p = document.createElement('p');
+  p.className = 'rk-empty';
+  p.textContent = text;
+  el.appendChild(p);
+}
+
+function localBestText() {
+  return saveState.endlessBest ? '你的最佳 ' + fmtSec(saveState.endlessBest) + ' 秒' : '你还没有无限模式成绩';
+}
+
+async function loadRank(period) {
+  var req = ++rankReq;
+  var list = $('rk-list'), mine = $('rk-mine');
+  if (!hasRank()) {
+    emptyNote(list, '在小红书里打开才能看排行榜');
+    mine.textContent = localBestText();
+    return;
+  }
+  if (rankOff) {
+    emptyNote(list, '排行榜还没开通');
+    mine.textContent = localBestText();
+    return;
+  }
+  emptyNote(list, '加载中…');
+  mine.textContent = '';
+  try {
+    var res = await withRetry(function () { return miniTool.getRankList({ board: BOARD, period: period }); });
+    var me = await withRetry(function () { return miniTool.getMyRank({ board: BOARD, period: period }); });
+    if (req !== rankReq) return;
+    renderRankList(list, (res && res.data) || []);
+    renderMyRank(mine, me);
+  } catch (e) {
+    if (req !== rankReq) return;
+    emptyNote(list, rankError(e));
+    mine.textContent = localBestText();
+  }
+}
+
+// 昵称来自其他玩家，一律按纯文本写入，不拼 HTML
+function renderRankList(el, rows) {
+  el.innerHTML = '';
+  if (!rows.length) { emptyNote(el, '这一期还没人上榜，来当第一个'); return; }
+  rows.forEach(function (row) {
+    var line = document.createElement('div');
+    line.className = 'rk-row' + (row.rank <= 3 ? ' top' : '');
+    var no = document.createElement('span');
+    no.className = 'rk-no';
+    no.textContent = row.rank;
+    var ava = document.createElement('span');
+    ava.className = 'rk-ava';
+    var nick = row.nickname || '小红薯';
+    ava.textContent = nick.charAt(0);
+    if (row.avatar) {
+      var img = document.createElement('img');
+      img.alt = '';
+      img.addEventListener('load', function () { ava.textContent = ''; ava.appendChild(img); });
+      img.src = row.avatar;
+    }
+    var name = document.createElement('span');
+    name.className = 'rk-name';
+    name.textContent = nick;
+    var score = document.createElement('span');
+    score.className = 'rk-score';
+    score.textContent = fmtSec(Number(row.score) || 0) + ' 秒';
+    line.appendChild(no); line.appendChild(ava); line.appendChild(name); line.appendChild(score);
+    el.appendChild(line);
+  });
+}
+
+function renderMyRank(el, me) {
+  el.innerHTML = '';
+  var b = document.createElement('b');
+  if (me && me.status === 'EXACT') {
+    el.appendChild(document.createTextNode('我排第 '));
+    b.textContent = me.rank;
+    el.appendChild(b);
+    el.appendChild(document.createTextNode(' 名 · ' + fmtSec(Number(me.score) || 0) + ' 秒'));
+  } else if (me && me.status === 'OVER_LIMIT') {
+    b.textContent = '10000+';
+    el.appendChild(document.createTextNode('我排在 '));
+    el.appendChild(b);
+    el.appendChild(document.createTextNode(' · ' + fmtSec(Number(me.score) || 0) + ' 秒'));
+  } else {
+    el.textContent = '这一期你还没有成绩，' + (saveState.endlessBest ? '本机最佳 ' + fmtSec(saveState.endlessBest) + ' 秒' : '去无限模式玩一局');
+  }
+}
+
+$('dlg-body').addEventListener('click', function (e) {
+  var btn = e.target.closest ? e.target.closest('button[data-period]') : null;
+  if (!btn) return;
+  var all = $('dlg-body').querySelectorAll('button[data-period]');
+  for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i] === btn);
+  loadRank(btn.getAttribute('data-period'));
+});
+
 // ============ 分享图与发笔记 ============
 function makeShareImage(isFail) {
   var c = document.createElement('canvas');
@@ -1282,15 +1628,18 @@ function makeShareImage(isFail) {
   x.fillText('躲好', 56, 56);
   x.fillStyle = '#ff3b4f';
   x.fillText('别出声', 56 + x.measureText('躲好').width + 6, 56);
+  var endless = S.mode === 'endless';
   x.fillStyle = '#ffffff';
   x.font = 'italic 900 130px ' + font;
-  x.fillText('第 ' + S.level + ' 关', 50, 120);
+  x.fillText(endless ? fmtSec(S.elapsed) + ' 秒' : '第 ' + S.level + ' 关', 50, 120);
   x.font = '800 44px ' + font;
   x.fillStyle = '#66dcff';
-  x.fillText(isFail ? '躲了 ' + survived() + ' 秒，还是被抓了' : S.total + ' 秒没被抓到', 56, 282);
+  if (endless) x.fillText('无限模式撑了 ' + fmtSec(S.elapsed) + ' 秒', 56, 282);
+  else x.fillText(isFail ? '躲了 ' + survived() + ' 秒，还是被抓了' : S.total + ' 秒没被抓到', 56, 282);
   x.fillStyle = '#8b93a1';
   x.font = '600 30px ' + font;
-  x.fillText(S.seekers.length + ' 个人在找我' + (isFail ? ' · 你能躲过吗' : ' · 你来试试'), 56, 352);
+  x.fillText(endless ? '最后 ' + S.seekers.length + ' 个人一起找我 · 你能撑多久'
+    : S.seekers.length + ' 个人在找我' + (isFail ? ' · 你能躲过吗' : ' · 你来试试'), 56, 352);
   return c.toDataURL('image/jpeg', 0.88);
 }
 
@@ -1311,8 +1660,12 @@ async function shareNote(isFail) {
   }
   try {
     var url = await toFilePath(makeShareImage(isFail));
-    var title = isFail ? '捉迷藏第' + S.level + '关，谁能躲过' : '捉迷藏第' + S.level + '关没被抓';
-    var content = isFail
+    var endless = S.mode === 'endless';
+    var title = endless ? '捉迷藏无限模式撑了' + fmtSec(S.elapsed) + '秒'
+      : (isFail ? '捉迷藏第' + S.level + '关，谁能躲过' : '捉迷藏第' + S.level + '关没被抓');
+    var content = endless
+      ? '小工具「躲好别出声」无限模式，每5秒多一个人找我，撑了' + fmtSec(S.elapsed) + '秒，最后' + S.seekers.length + '个人一起找。你能撑多久？ #捉迷藏 #小游戏'
+      : isFail
       ? '在小工具「躲好别出声」第' + S.level + '关躲了' + survived() + '秒还是被抓了。你能躲过吗？ #捉迷藏 #小游戏'
       : '小工具「躲好别出声」第' + S.level + '关，' + S.seekers.length + '个人找我，' + S.total + '秒没被抓到。来比比？ #捉迷藏 #小游戏';
     await miniTool.postNote({
@@ -1355,7 +1708,9 @@ window.addEventListener('resize', function () {
   if (d) {
     saveState.level = Math.max(1, d.level | 0);
     saveState.best = Math.max(0, d.best | 0);
+    saveState.endlessBest = Math.max(0, Number(d.endlessBest) || 0);
     saveState.muted = !!d.muted;
+    saveState.mode = d.mode === 'endless' ? 'endless' : 'level';
   }
   await applyTopInset();
   canVibrate = await canUse('vibrateShort', 9500);
