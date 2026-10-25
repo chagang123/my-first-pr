@@ -11,6 +11,7 @@
   --cyan-ink: #082431;
   --red: #ff3b4f;
   --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --top-inset: var(--safe-top);
   --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
 }
 
@@ -171,8 +172,8 @@ svg .dot { fill: currentColor; stroke: none; }
   display: flex;
   align-items: center;
   padding: 0 12px;
-  padding-top: var(--safe-top);
-  height: calc(60px + var(--safe-top));
+  padding-top: var(--top-inset);
+  height: calc(60px + var(--top-inset));
 }
 
 #bar > button {
@@ -222,7 +223,7 @@ svg .dot { fill: currentColor; stroke: none; }
   max-width: 480px;
   margin: 0 auto;
   padding: 0 22px;
-  padding-top: calc(28px + var(--safe-top));
+  padding-top: calc(28px + var(--top-inset));
   padding-bottom: calc(22px + var(--safe-bottom));
 }
 
@@ -327,6 +328,47 @@ svg .dot { fill: currentColor; stroke: none; }
 #dlg-body ol { padding-left: 1.2em; }
 #dlg-body li + li { margin-top: 6px; }
 #dlg-main { margin-top: 22px; height: 52px; font-size: 18px; }
+
+/* ---------- 提示 ---------- */
+#toast {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 11px 18px;
+  border-radius: 10px;
+  background: rgba(243, 244, 246, 0.95);
+  color: #0d1016;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  z-index: 20;
+}
+
+/* 选关 */
+.lv-grid { display: flex; flex-wrap: wrap; margin: 4px -4px 0; }
+.lv-grid button {
+  width: calc(20% - 8px);
+  margin: 4px;
+  height: 52px;
+  border-radius: 10px;
+  background: var(--raise);
+  border: 1.5px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.lv-grid button small { font-size: 10px; font-weight: 600; color: var(--muted); margin-top: 1px; }
+.lv-grid button.done small { color: var(--cyan); }
+.lv-grid button.current { border-color: var(--cyan); }
+.lv-grid button.locked { opacity: 0.35; }
+.lv-grid button.locked small { color: var(--muted); }
 
 /* ---------- 提示 ---------- */
 #toast {

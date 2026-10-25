@@ -1066,6 +1066,36 @@ $('nav-help').addEventListener('click', function () {
   });
 });
 
+// 已解锁到 saveState.level，后面再多露出几关锁住的，让人知道还有
+$('nav-levels').addEventListener('click', function () {
+  var unlocked = Math.max(1, saveState.level);
+  var shown = Math.max(unlocked + 4, 10);
+  var html = '<div class="lv-grid">';
+  for (var n = 1; n <= shown; n++) {
+    var cls = n > unlocked ? 'locked' : (n <= saveState.best ? 'done' : '');
+    if (n === unlocked) cls += ' current';
+    var tag = n > unlocked ? '未解锁' : (n <= saveState.best ? '已过' : '可玩');
+    html += '<button type="button" data-lv="' + n + '" class="' + cls + '">' + n + '<small>' + tag + '</small></button>';
+  }
+  html += '</div>';
+  openDialog({
+    kicker: '已解锁 ' + unlocked + ' 关',
+    title: '选择关卡',
+    html: html,
+    main: '关闭',
+    onMain: closeDialog
+  });
+});
+
+$('dlg-body').addEventListener('click', function (e) {
+  var btn = e.target.closest ? e.target.closest('button[data-lv]') : null;
+  if (!btn) return;
+  var n = parseInt(btn.getAttribute('data-lv'), 10);
+  if (n > Math.max(1, saveState.level)) { toast('先通过第 ' + (n - 1) + ' 关才能玩'); return; }
+  closeDialog();
+  showGame(n);
+});
+
 function toast(msg) {
   var el = $('toast');
   el.textContent = msg;
@@ -1341,6 +1371,25 @@ async function shareNote(isFail) {
   }
 }
 
+// ============ 避让小红书顶部按钮（getWindowInfo，客户端 9.49+） ============
+async function applyTopInset() {
+  if (!miniTool) return;
+  var root = document.documentElement;
+  // 拿不到按钮位置时，默认在安全区下面再让出一排按钮的高度
+  root.style.setProperty('--top-inset', 'calc(var(--safe-top) + 52px)');
+  if (!(await canUse('getWindowInfo', 9490))) return;
+  try {
+    var info = await miniTool.getWindowInfo();
+    var mb = (info && info.menuButtons) || {};
+    var bottom = 0;
+    ['back', 'me', 'share'].forEach(function (k) {
+      if (mb[k] && typeof mb[k].bottom === 'number') bottom = Math.max(bottom, mb[k].bottom);
+    });
+    if (!bottom && info && typeof info.statusBarHeight === 'number') bottom = info.statusBarHeight;
+    if (bottom) root.style.setProperty('--top-inset', Math.ceil(bottom + 6) + 'px');
+  } catch (e) { /* 保留默认避让 */ }
+}
+
 // ============ 启动 ============
 window.addEventListener('resize', function () {
   if (inGame) resizeGame(); else drawHero();
@@ -1354,6 +1403,7 @@ window.addEventListener('resize', function () {
     saveState.bestScore = Math.max(0, d.bestScore | 0);
     saveState.muted = !!d.muted;
   }
+  await applyTopInset();
   canVibrate = await canUse('vibrateShort', 9500);
   showHome();
   requestAnimationFrame(loop);
