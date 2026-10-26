@@ -1,0 +1,9 @@
+浏览器数据/
+解压/
+页面采集/
+检查报告_*.xlsx
+上架记录.json
+build/
+dist/
+*.spec
+__pycache__/
