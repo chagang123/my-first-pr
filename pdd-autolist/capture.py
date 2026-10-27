@@ -50,6 +50,29 @@ ELEMENTS_JS = r"""
 """
 
 
+def save_step(page, step: Path):
+    """发布页常常开在新标签页，传进来的是最后一个标签页"""
+    step.mkdir(exist_ok=True)
+    (step / "网址.txt").write_text(page.url, encoding="utf-8")
+    (step / "网页.html").write_text(page.content(), encoding="utf-8")
+    # SKU 多的时候页面很长，整页截图会超时；截图失败不影响网页和元素列表
+    try:
+        page.screenshot(path=str(step / "截图.png"), full_page=True, timeout=15000)
+    except Exception:
+        try:
+            page.screenshot(path=str(step / "截图.png"), timeout=10000)
+            print("页面太长，只截了屏幕上能看到的部分")
+        except Exception:
+            print("截图没截上，网页和元素照样存（需要的话自己按 Win+Shift+S 截一张）")
+    elements = {}
+    for i, frame in enumerate(page.frames):
+        try:
+            elements[f"{i}:{frame.url}"] = frame.evaluate(ELEMENTS_JS)
+        except Exception as e:
+            elements[f"{i}:{frame.url}"] = f"读取失败：{e}"
+    (step / "元素.json").write_text(json.dumps(elements, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main():
     shop = sys.argv[1] if len(sys.argv) > 1 else "店铺1"
     out = HERE / "页面采集" / shop / time.strftime("%m%d_%H%M")
@@ -57,12 +80,17 @@ def main():
     net_file = (out / "提交请求.jsonl").open("a", encoding="utf-8")
 
     def on_request(req):
-        if req.method != "GET" and "pinduoduo.com" in req.url:
-            net_file.write(json.dumps({
-                "time": time.strftime("%H:%M:%S"), "method": req.method, "url": req.url,
-                "body": (req.post_data or "")[:200_000],
-            }, ensure_ascii=False) + "\n")
-            net_file.flush()
+        if req.method == "GET" or "pinduoduo.com" not in req.url:
+            return
+        try:
+            # 上传图片之类的请求内容不是文字，用 post_data 会报错，这里按字节读再尽量转成文字
+            body = (req.post_data_buffer or b"")[:200_000].decode("utf-8", errors="replace")
+        except Exception as e:
+            body = f"读取失败：{e}"
+        net_file.write(json.dumps({
+            "time": time.strftime("%H:%M:%S"), "method": req.method, "url": req.url, "body": body,
+        }, ensure_ascii=False) + "\n")
+        net_file.flush()
 
     lines = queue.Queue()
     threading.Thread(target=lambda: [lines.put(line) for line in iter(sys.stdin.readline, "")], daemon=True).start()
@@ -74,43 +102,35 @@ def main():
 
         print(f"已打开拼多多商家后台（{shop}）。请先登录，然后点「发布新商品」，一步一步往下走。")
         print("每到一个新步骤：在这里输入这一步叫什么（比如「选类目」「SKU表格」），按回车保存。")
+        print("【这个黑窗口不要关！关了就停止采集了】")
         print("输入 q 回车结束。保存位置：", out)
         n = 0
         while True:
+            if not browser.is_connected():
+                print("浏览器已经关了")
+                break
+            # 登录、跳转时拼多多会关掉旧标签页再开新的，所以每次都重新找，找的过程中页面没了也不算错
+            open_pages = [p for p in ctx.pages if not p.is_closed()]
             try:
                 line = lines.get_nowait().strip()
             except queue.Empty:
-                open_pages = [p for p in ctx.pages if not p.is_closed()]
-                if not open_pages:
-                    print("浏览器已经关了")
-                    break
-                open_pages[-1].wait_for_timeout(300)   # 让浏览器事件继续跑，提交请求才能记下来
+                try:
+                    open_pages[-1].wait_for_timeout(300)   # 让浏览器事件继续跑，提交请求才能记下来
+                except Exception:
+                    time.sleep(0.3)
                 continue
             if line.lower() == "q":
                 break
-            open_pages = [p for p in ctx.pages if not p.is_closed()]
             if not open_pages:
-                print("浏览器已经关了")
-                break
-            page = open_pages[-1]               # 发布页常常开在新标签页，取最后一个
+                print("现在没有打开的页面，等页面出来再回车一次")
+                continue
             n += 1
-            step = out / f"{n:02d}_{re.sub(r'[\\/:*?\"<>|]', '_', line) or '未命名'}"
-            step.mkdir(exist_ok=True)
-            (step / "网址.txt").write_text(page.url, encoding="utf-8")
-            (step / "网页.html").write_text(page.content(), encoding="utf-8")
             try:
-                page.screenshot(path=str(step / "截图.png"), full_page=True)
+                save_step(open_pages[-1], out / f"{n:02d}_{re.sub(r'[\\/:*?\"<>|]', '_', line) or '未命名'}")
+                print(f"已保存第 {n} 步：{line or '未命名'}")
             except Exception as e:
-                print("整页截图失败，只截可见部分：", e)
-                page.screenshot(path=str(step / "截图.png"))
-            elements = {}
-            for i, frame in enumerate(page.frames):
-                try:
-                    elements[f"{i}:{frame.url}"] = frame.evaluate(ELEMENTS_JS)
-                except Exception as e:
-                    elements[f"{i}:{frame.url}"] = f"读取失败：{e}"
-            (step / "元素.json").write_text(json.dumps(elements, ensure_ascii=False, indent=1), encoding="utf-8")
-            print(f"已保存第 {n} 步：{line or '未命名'}")
+                print(f"第 {n} 步没存上（{e.__class__.__name__}），等页面加载完再输入一次")
+                n -= 1
 
         close_edge(browser, edge)
     net_file.close()
@@ -118,4 +138,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # 双击运行时出错窗口会直接关掉，看不到原因；这里留住窗口，并写进日志
+        import traceback
+        err = traceback.format_exc()
+        print("\n出错了：\n" + err)
+        (HERE / "运行日志.txt").write_text(err, encoding="utf-8")
+        print("截图发给开发者。窗口 10 分钟后自动关闭，也可以直接点右上角关掉。")
+        time.sleep(600)    # 不用 input()：读输入的线程还在等回车，会抢

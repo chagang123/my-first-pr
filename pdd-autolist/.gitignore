@@ -7,3 +7,6 @@ build/
 dist/
 *.spec
 __pycache__/
+采集结果/
+远程截图.png
+交付/
