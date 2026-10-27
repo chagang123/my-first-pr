@@ -60,6 +60,10 @@ with sync_playwright() as pw:
     check("批量设置按钮", pg.get_by_role("button", name="批量设置").count() == 1)
     check("商品参考价", pg.get_by_placeholder("应大于商品最大单买价").input_value() == "84")
     check("提交并上架按钮", pg.locator("#submit_button").count() == 1)
+    check("满件折扣框", pg.get_by_placeholder("5.0~9.9").count() == 1)
+    jia = pg.locator("label[data-testid=beast-core-checkbox]").filter(
+        has_text=__import__("re").compile(r"^\s*假一赔十\s*$"))
+    check("假一赔十勾选框", jia.count() == 1, f"data-checked={jia.first.get_attribute('data-checked')}")
 
     p = Product(folder=Path("."), goods_id="", title="", shop="", skus=[
         Sku("大扁头自钻(兰锌)M4.2", 13.99, 82, 83, 999, "", image=Path("x.jpg")),

@@ -10,6 +10,8 @@ import subprocess
 import time
 from pathlib import Path
 
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)   # 面板版没有黑窗口，调命令行时别闪出一个来
+
 EDGE_PATHS = [
     Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Microsoft/Edge/Application/msedge.exe",
     Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Microsoft/Edge/Application/msedge.exe",
@@ -31,7 +33,7 @@ def close_edge(browser, proc):
             proc.wait(timeout=10)
     except Exception:
         if proc:
-            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
 
 
 def _attach_running(pw, profile: Path):
@@ -40,7 +42,7 @@ def _attach_running(pw, profile: Path):
         ["powershell", "-NoProfile", "-Command",
          "[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
          "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | ForEach-Object { $_.CommandLine }"],
-        capture_output=True,
+        capture_output=True, creationflags=NO_WINDOW,
     ).stdout.decode("utf-8", errors="replace")
     for line in out.splitlines():
         m = re.search(r"--remote-debugging-port=(\d+)", line)
@@ -67,7 +69,10 @@ def open_edge(pw, profile: Path, url: str):
         return running[0], running[1], None
     port = _free_port()
     proc = subprocess.Popen([
+        # 窗口被挡住或最小化时 Edge 会停止刷新，点击和截图就会一直等，这三个参数让它照常刷新
         str(edge), f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
+        "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",
+        "--disable-background-timer-throttling",
         "--no-first-run", "--no-default-browser-check", "--start-maximized", url,
     ])
     for _ in range(40):

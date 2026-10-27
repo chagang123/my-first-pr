@@ -11,6 +11,7 @@
 import json
 import random
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -30,10 +31,27 @@ DEFAULT_SETTINGS = {
     "标题最长字节": 60,
     "加价超过几倍提醒": 3,
     "类目": "推荐第一个",
+    "主图最后再放一次第一张": True,
+    "满件折扣": 9.9,
+    "假一赔十": True,
     "默认属性": {},
 }
 
-sys.stdout.reconfigure(encoding="utf-8")
+# 打成不带黑窗口的 exe 时没有 stdout
+if sys.stdout:
+    sys.stdout.reconfigure(encoding="utf-8")
+
+# 给操作面板用的几个口子：面板把自己的函数挂上来，命令行用默认的
+LOG_SINKS = []                  # 每条运行记录都会交给这里的函数（面板拿去显示）
+STOP = threading.Event()        # 面板点「停止」时设上，当前商品做完就停
+PROGRESS = None                 # PROGRESS(店铺, 第几个, 一共几个, 成功数, 失败数)
+CONFIRM_CLOSE = lambda: input("\n检查完浏览器里填的内容后，按回车关闭浏览器（这个商品不会提交）")
+
+
+def reload_settings():
+    """面板改了设置.json 之后调一下，让正在用的 SETTINGS 跟着变"""
+    SETTINGS.clear()
+    SETTINGS.update(load_settings())
 
 
 def load_settings():
@@ -48,7 +66,10 @@ SETTINGS = load_settings()
 
 def log(msg):
     line = f"{time.strftime('%H:%M:%S')} {msg}"
-    print(line, flush=True)
+    if sys.stdout:
+        print(line, flush=True)
+    for sink in LOG_SINKS:
+        sink(line)
     try:
         with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(time.strftime("%m-%d ") + line + "\n")
@@ -131,8 +152,8 @@ def read_all(root: Path):
 def cmd_check(root: Path):
     items = read_all(root)
     if not items:
-        print(f"没找到商品资料：把店透视导出的 zip 放进「{root}」再试")
-        return
+        log(f"没找到商品资料：把店透视导出的 zip 放进「{root}」再试")
+        return None
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "商品"
@@ -142,14 +163,14 @@ def cmd_check(root: Path):
     for p, f, errors, warns in items:
         if p is None:
             ws.append(["", f.name, "", "", "", "", "不能", "\n".join(errors)])
-            print("✗", f.name, *errors)
+            log(f"✗ {f.name}  {'；'.join(errors)}")
             continue
         ws.append([p.goods_id, p.title, len(p.skus), len(p.main_images), len(p.detail_images),
                    sum(s.image is not None for s in p.skus), "不能" if errors else "能", "\n".join(errors + warns)])
         for s in p.skus:
             ws2.append([p.goods_id, s.name, s.src_price, s.group_price, s.single_price, s.stock, s.code,
                         s.image.name if s.image else "没找到"])
-        print("✗" if errors else "✓", p.title, f"{len(p.skus)} 个 SKU", *errors, *warns, sep="  ")
+        log(f"{'✗' if errors else '✓'} {p.title}  {len(p.skus)} 个规格  " + "；".join(errors + warns))
     for sheet in (ws, ws2):
         for c in sheet[1]:
             c.font = Font(bold=True)
@@ -159,7 +180,8 @@ def cmd_check(root: Path):
     out = HERE / f"检查报告_{time.strftime('%m%d_%H%M')}.xlsx"
     wb.save(out)
     ok = sum(1 for it in items if it[0] is not None and not it[2])
-    print(f"\n共 {len(items)} 个商品，能上 {ok} 个。报告：{out}")
+    log(f"共 {len(items)} 个商品，能上 {ok} 个。检查报告：{out.name}")
+    return out
 
 
 def wait_login(ctx):
@@ -173,6 +195,8 @@ def wait_login(ctx):
         if not asked:
             log("请在打开的浏览器里用拼多多商家版 App 扫码登录，登录好会自动继续")
             asked = True
+        if STOP.is_set():
+            return None
         time.sleep(1)
 
 
@@ -180,7 +204,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
     from playwright.sync_api import sync_playwright
 
     from browser import close_edge, open_edge
-    from publish import publish
+    from publish import current_page, publish
 
     products = []
     for p, f, errors, warns in read_all(root):
@@ -192,7 +216,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
         products.append(p)
     if not products:
         log(f"没有能上架的商品（先用「检查资料」看看「{root}」里的资料）")
-        return
+        return None
 
     record = load_record()
     results = []
@@ -216,9 +240,19 @@ def cmd_upload(root: Path, shops, do_submit=True):
             browser, ctx, edge = open_edge(pw, HERE / "浏览器数据" / name, "https://mms.pinduoduo.com/home/")
             ctx.on("page", lambda pg: pg.on("dialog", lambda d: d.accept()))   # 离开页面的确认框直接确定
             page = wait_login(ctx)
+            if page is None:
+                close_edge(browser, edge)
+                break
             page.on("dialog", lambda d: d.accept())
+            ok_n = fail_n = 0
             for i, p in enumerate(todo):
+                if STOP.is_set():
+                    log("已停止（点了停止）")
+                    break
+                if PROGRESS:
+                    PROGRESS(name, i + 1, len(todo), ok_n, fail_n)
                 log(f"【{name}】第 {i + 1}/{len(todo)} 个：{p.title}（{len(p.skus)} 个规格）")
+                page = current_page(ctx, page)
                 start = time.time()
                 try:
                     category, gid = publish(page, p, SETTINGS, log, do_submit)
@@ -228,6 +262,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
                         save_record(record)
                         log(f"上架成功，拼多多商品ID {gid}，用了 {mins:.1f} 分钟")
                         results.append([name, p.goods_id, p.title, len(p.skus), category, "成功", gid, ""])
+                        ok_n += 1
                     else:
                         log(f"已经填好（{mins:.1f} 分钟），没有提交")
                         results.append([name, p.goods_id, p.title, len(p.skus), category, "试填好了", "", ""])
@@ -235,19 +270,25 @@ def cmd_upload(root: Path, shops, do_submit=True):
                     msg = str(e).split("\nCall log")[0].strip()
                     shot = HERE / "失败截图" / f"{name}_{p.goods_id}_{time.strftime('%m%d_%H%M%S')}.png"
                     shot.parent.mkdir(exist_ok=True)
+                    page = current_page(ctx, page)
                     try:
                         page.screenshot(path=str(shot), full_page=True, timeout=15000)
                     except Exception:
                         shot = None
                     log(f"失败：{msg}" + (f"（截图：{shot.name}）" if shot else ""))
                     results.append([name, p.goods_id, p.title, len(p.skus), "", "失败", "", msg])
+                    fail_n += 1
                 if not do_submit:
-                    input("\n检查完浏览器里填的内容后，按回车关闭浏览器（这个商品不会提交）")
+                    CONFIRM_CLOSE()
                 elif i < len(todo) - 1:
                     wait = random.uniform(*gap)
                     log(f"等 {wait:.0f} 秒再上下一个")
-                    time.sleep(wait)
+                    STOP.wait(wait)
+            if PROGRESS:
+                PROGRESS(name, len(todo), len(todo), ok_n, fail_n)
             close_edge(browser, edge)
+            if STOP.is_set():
+                break
 
     if results:
         wb = openpyxl.Workbook()
@@ -264,10 +305,14 @@ def cmd_upload(root: Path, shops, do_submit=True):
         wb.save(out)
         ok = sum(r[5] != "失败" for r in results)
         log(f"完成：成功 {ok} 个，失败 {len(results) - ok} 个。结果表：{out.name}")
+        return out
+    return None
 
 
-def cmd_remote_try(root: Path):
-    """开发用：通过隧道连客户电脑上开着的 Edge，试填第一个商品，不提交、不关客户的浏览器"""
+def cmd_remote_try(root: Path, start="第一页", do_submit=False):
+    """开发用：通过隧道连客户电脑上开着的 Edge，试填第一个商品，不提交、不关客户的浏览器。
+    start 不是「第一页」时，在客户当前停着的第二页上从这一步接着跑。
+    隧道跑几分钟会断一次，断了自动重连，从断掉的那一步接着跑"""
     from playwright.sync_api import sync_playwright
 
     import publish
@@ -279,24 +324,50 @@ def cmd_remote_try(root: Path):
         return
     p = items[0][0]
     publish.REMOTE = True
-    with sync_playwright() as pw:
-        browser, ctx, tunnel = open_remote_edge(pw)
-        try:
-            page = wait_login(ctx)
-            page.on("dialog", lambda d: d.accept())
-            log(f"远程试填：{p.title}（{len(p.skus)} 个规格）")
+    log(f"远程试填：{p.title}（{len(p.skus)} 个规格）")
+    for attempt in range(10):
+        with sync_playwright() as pw:
             try:
-                category, _ = publish.publish(page, p, SETTINGS, log, do_submit=False)
-                log(f"填好了，类目 {category}，没有提交，去客户电脑上看")
+                browser, ctx, tunnel = open_remote_edge(pw)
             except Exception as e:
-                log("失败：" + str(e).split("\nCall log")[0].strip())
-                shot = HERE / "失败截图" / f"远程_{time.strftime('%m%d_%H%M%S')}.png"
-                shot.parent.mkdir(exist_ok=True)
-                page.screenshot(path=str(shot), timeout=15000)
-                log(f"截图：{shot}")
-        finally:
-            if tunnel:
-                tunnel.terminate()
+                log(f"连不上客户的 Edge：{e}，10 秒后再试")
+                time.sleep(10)
+                continue
+            try:
+                page = wait_login(ctx)
+                if start != "第一页":
+                    page = publish.current_page(ctx, page)
+                    if "/goods/goods_add" not in page.url:
+                        log("客户那边现在不在填写商品信息的页面，没法接着跑，去掉「从…」从头来")
+                        return
+                    log(f"在客户当前的页面上，从「{start}」这一步接着跑")
+                page.on("dialog", lambda d: d.accept())
+                try:
+                    category, gid = publish.publish(page, p, SETTINGS, log, do_submit=do_submit, start=start)
+                    if do_submit:
+                        log(f"提交成功，拼多多商品ID {gid}")
+                    else:
+                        log(f"填好了，类目 {category}，没有提交，去客户电脑上看")
+                    return
+                except Exception as e:
+                    msg = str(e).split("\nCall log")[0].strip()
+                    # 隧道断了会报 closed，半断不断时各种操作会超时，都重连接着跑
+                    if ("has been closed" in msg or "Timeout" in msg) and attempt < 9:
+                        start = publish.LAST_STEP
+                        log(f"连接断了（第 {attempt + 1} 次），重连后从「{start}」接着跑")
+                        continue
+                    log("失败：" + msg)
+                    shot = HERE / "失败截图" / f"远程_{time.strftime('%m%d_%H%M%S')}.png"
+                    shot.parent.mkdir(exist_ok=True)
+                    try:
+                        publish.current_page(ctx, page).screenshot(path=str(shot), timeout=15000)
+                        log(f"截图：{shot}")
+                    except Exception:
+                        log("截图没截上（客户那边的 Edge 窗口可能被挡住了）")
+                    return
+            finally:
+                if tunnel:
+                    tunnel.terminate()
 
 
 def pick_shops(arg=None):
@@ -335,12 +406,20 @@ def menu():
 
 def main():
     if len(sys.argv) == 1:
+        import gui      # 双击 exe：打开操作面板
+        gui.run()
+        return
+    cmd = sys.argv[1]
+    if cmd == "菜单":   # 老的黑窗口数字菜单，留着备用
         menu()
         input("\n按回车关闭")
         return
-    cmd = sys.argv[1]
-    root = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "待上架"
-    shop = sys.argv[3] if len(sys.argv) > 3 else None
+    # 「从规格」这种参数表示从哪一步接着跑，其余参数是资料文件夹、店铺
+    start = next((a[1:] for a in sys.argv[2:] if a.startswith("从")), "第一页")
+    remote_submit = "提交" in sys.argv[2:]     # 远程试填加「提交」才会点提交并上架，要先问过客户
+    args = [a for a in sys.argv[2:] if not a.startswith("从") and a != "提交"]
+    root = Path(args[0]) if args else HERE / "待上架"
+    shop = args[1] if len(args) > 1 else None
     if cmd == "检查":
         cmd_check(root)
     elif cmd == "试填":
@@ -348,7 +427,7 @@ def main():
     elif cmd == "上架":
         cmd_upload(root, pick_shops(shop), do_submit=True)
     elif cmd == "远程试填":
-        cmd_remote_try(root)
+        cmd_remote_try(root, start, remote_submit)
     else:
         print(__doc__)
 
