@@ -23,7 +23,11 @@ MUTED = "#777777"
 LINE = "#e5e5e5"
 BG = "#ffffff"
 FONT = "Microsoft YaHei UI"
-VERSION = "1028-1420"   # 每次打包改一下，面板标题上显示，方便确认客户用的是哪一版
+VERSION = "1028-1500"   # 每次打包改一下，面板标题上显示，方便确认客户用的是哪一版
+
+
+class ShopNameError(ValueError):
+    """店名空着、重名、或者有文件名里不能用的符号"""
 
 
 class Panel:
@@ -37,7 +41,7 @@ class Panel:
         self.last_result = None
 
         root.title(f"拼多多自动上架　版本 {VERSION}")
-        root.geometry("860x720")
+        root.geometry("880x780")
         root.minsize(760, 600)
         root.configure(bg=BG)
         self._style()
@@ -100,29 +104,19 @@ class Panel:
 
         ttk.Separator(self.root).pack(fill="x", **pad)
 
-        # 店铺
-        sec = ttk.Frame(self.root)
-        sec.pack(fill="x", pady=(14, 4), **pad)
-        ttk.Label(sec, text="店铺", style="Section.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(sec, text="勾上要上的店。名字用来区分登录状态，改了名要重新扫码", style="Muted.TLabel").grid(
-            row=0, column=1, columnspan=4, sticky="w", padx=(12, 0))
+        # 店铺：每个账号一行，可以加、可以删；每行的名字对应各自的登录状态（浏览器数据\店名）
+        head = ttk.Frame(self.root)
+        head.pack(fill="x", pady=(14, 0), **pad)
+        ttk.Label(head, text="店铺", style="Section.TLabel").pack(side="left")
+        ttk.Label(head, text="一个账号一行，勾上的会一个接一个上。名字对应登录状态，改了名要重新扫码",
+                  style="Muted.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Button(head, text="＋ 添加店铺", style="Link.TButton", command=self.add_shop).pack(side="right")
+        self.shop_box = ttk.Frame(self.root)
+        self.shop_box.pack(fill="x", pady=(4, 4), **pad)
         self.shop_rows = []
-        for i, shop in enumerate(core.SETTINGS["店铺"], start=1):
-            use = tk.BooleanVar(value=True)
-            name = tk.StringVar(value=shop["名称"])
-            kind = tk.StringVar(value=shop.get("类型", "普通"))
-            limit = tk.StringVar(value=str(shop["每天最多上架"]))
-            self._check(sec, "", use).grid(row=i, column=0, sticky="w", pady=4)
-            box = ttk.Frame(sec)
-            box.grid(row=i, column=1, sticky="w", padx=(12, 16))
-            ttk.Entry(box, textvariable=name, width=12).pack(side="left")
-            ttk.Combobox(box, textvariable=kind, values=["普通", "旗舰"], width=5, state="readonly").pack(
-                side="left", padx=(6, 0))
-            ttk.Label(sec, text="每天最多上").grid(row=i, column=2, sticky="w")
-            ttk.Spinbox(sec, from_=1, to=500, textvariable=limit, width=5).grid(row=i, column=3, sticky="w", padx=6)
-            today = core.today_count(core.load_record(), shop["名称"])
-            ttk.Label(sec, text=f"个　今天已上 {today} 个", style="Muted.TLabel").grid(row=i, column=4, sticky="w")
-            self.shop_rows.append((use, name, limit, kind))
+        for shop in core.SETTINGS["店铺"]:
+            self._shop_row(shop, checked=True)
+        self._layout_shops()
 
         # 常用设置
         sec2 = ttk.Frame(self.root)
@@ -183,6 +177,58 @@ class Panel:
         self.logbox.pack(fill="both", expand=True, pady=(8, 8), **pad)
         self.logbox.configure(state="disabled")
 
+    # ---------- 店铺行 ----------
+
+    def _shop_row(self, shop, checked):
+        """建一行店铺的控件，先不摆位置（_layout_shops 统一摆）"""
+        row = {
+            "use": tk.BooleanVar(value=checked),
+            "name": tk.StringVar(value=shop["名称"]),
+            "kind": tk.StringVar(value=shop.get("类型", "普通")),
+            "limit": tk.StringVar(value=str(shop.get("每天最多上架", 20))),
+            "old_name": shop["名称"],
+        }
+        today = core.today_count(core.load_record(), shop["名称"])
+        row["widgets"] = [
+            self._check(self.shop_box, "", row["use"]),
+            ttk.Entry(self.shop_box, textvariable=row["name"], width=12),
+            ttk.Combobox(self.shop_box, textvariable=row["kind"], values=["普通", "旗舰"], width=5, state="readonly"),
+            ttk.Label(self.shop_box, text="每天最多上"),
+            ttk.Spinbox(self.shop_box, from_=1, to=500, textvariable=row["limit"], width=5),
+            ttk.Label(self.shop_box, text=f"个　今天已上 {today} 个", style="Muted.TLabel"),
+            ttk.Button(self.shop_box, text="删除", style="Link.TButton", command=lambda: self.remove_shop(row)),
+        ]
+        self.shop_rows.append(row)
+
+    def _layout_shops(self):
+        for w in self.shop_box.grid_slaves():
+            w.grid_forget()
+        pads = [(0, 0), (12, 0), (6, 16), (0, 0), (6, 6), (0, 16), (0, 0)]
+        for r, row in enumerate(self.shop_rows):
+            for c, w in enumerate(row["widgets"]):
+                w.grid(row=r, column=c, sticky="w", pady=3, padx=pads[c])
+
+    def add_shop(self):
+        names = {r["name"].get().strip() for r in self.shop_rows}
+        n = len(self.shop_rows) + 1
+        while f"店铺{n}" in names:
+            n += 1
+        self._shop_row({"名称": f"店铺{n}", "类型": "普通", "每天最多上架": 20}, checked=False)
+        self._layout_shops()
+        self.shop_rows[-1]["widgets"][1].focus_set()
+
+    def remove_shop(self, row):
+        if len(self.shop_rows) == 1:
+            messagebox.showinfo("至少留一个", "至少要留一个店铺")
+            return
+        if not messagebox.askokcancel("删除店铺", f"从面板上删掉「{row['name'].get()}」？\n\n"
+                                                  "它的登录状态和上架记录不会删，以后加回同名的店铺还能接着用。"):
+            return
+        for w in row["widgets"]:
+            w.destroy()
+        self.shop_rows.remove(row)
+        self._layout_shops()
+
     def _check(self, parent, text, var):
         """用 Windows 自带的勾选框（显示 ✓），ttk 的 clam 主题勾上显示 ×，看着像没勾"""
         return tk.Checkbutton(parent, text=text, variable=var, bg=BG, activebackground=BG, fg=INK,
@@ -206,8 +252,14 @@ class Panel:
         f = core.HERE / "设置.json"
         cfg = json.loads(f.read_text(encoding="utf-8")) if f.exists() else dict(core.DEFAULT_SETTINGS)
         shops = []
-        for use, name, limit, kind in self.shop_rows:
-            shops.append({"名称": name.get().strip() or "店铺", "类型": kind.get(), "每天最多上架": int(limit.get())})
+        for row in self.shop_rows:
+            name = row["name"].get().strip()
+            # 店名会当文件夹名用（浏览器数据\店名），不能有 Windows 文件名里不让用的符号
+            if not name or any(ch in name for ch in r'\/:*?"<>|'):
+                raise ShopNameError(r'店名不能空着，也不能有 \ / : * ? " < > | 这些符号')
+            if name in [x["名称"] for x in shops]:
+                raise ShopNameError(f"有两个店都叫「{name}」，改成不一样的名字")
+            shops.append({"名称": name, "类型": row["kind"].get(), "每天最多上架": int(row["limit"].get())})
         cfg["店铺"] = shops
         a, b = int(self.gap_a.get()), int(self.gap_b.get())
         cfg["两个商品之间等几秒"] = [min(a, b), max(a, b)]
@@ -223,7 +275,7 @@ class Panel:
         core.reload_settings()
 
     def chosen_shops(self):
-        names = {name.get().strip() for use, name, _, _ in self.shop_rows if use.get()}
+        names = {row["name"].get().strip() for row in self.shop_rows if row["use"].get()}
         return [s for s in core.SETTINGS["店铺"] if s["名称"] in names]
 
     def run(self, what):
@@ -231,6 +283,9 @@ class Panel:
             return
         try:
             self.save_settings()
+        except ShopNameError as e:
+            messagebox.showwarning("店名有问题", str(e))
+            return
         except ValueError:
             messagebox.showwarning("设置有误", "等待秒数、每天上限要填整数，折扣填 5.0～9.9 之间的数")
             return

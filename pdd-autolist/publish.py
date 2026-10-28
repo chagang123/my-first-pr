@@ -247,22 +247,37 @@ def page_one_flagship(page, p, cfg, log):
 
     search = page.get_by_placeholder("请输入关键词搜索分类")
     search.wait_for(state="visible", timeout=30000)
+    # 本地跑得快：页面刚出来搜索框还没接上搜索，填进去也不出下拉。先等页面稳定
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+    page.wait_for_timeout(1500)
     options = page.locator("[data-testid=beast-core-search-panel] li")
-    # 先点一下搜索框再填（不点直接填、或者填完再按键，下拉不会出来）；下拉挂在页面最外层，看个数就行
-    for i in range(3):
+    # 先点一下搜索框，填前面的字，最后一个字模拟打字输进去，下拉才稳定出来；下拉挂在页面最外层，看个数就行
+    for i in range(4):
         _click(search)
-        search.fill(p.title)
+        search.fill(p.title[:-1])
+        search.press_sequentially(p.title[-1], delay=120)
         end = time.time() + 12
         while time.time() < end and not options.count():
             page.wait_for_timeout(500)
         if options.count():
             break
-        if i == 2:
+        if i == 3:
             raise PublishError("在分类搜索框输入标题以后，没有弹出类目")
+        log(f"分类搜索没出结果，第 {i + 2} 次重新输入")
         search.fill("")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(2000)
+    page.wait_for_timeout(800)      # 下拉刚出来时结果还会刷新一下，等它稳定再选
     category = options.first.inner_text().strip()
     _click(options.first)
+    # 选上以后下面「已选分类」会显示这个类目，确认选上了再往下
+    picked = category.replace(" ", "")
+    chosen_js = """(want) => [...document.querySelectorAll('*')]
+        .filter(e => e.children.length === 0 && e.textContent.trim().startsWith('已选分类'))
+        .some(e => (e.parentElement || e).innerText.replace(/\\s/g, '').includes(want))"""
+    _wait(lambda: page.evaluate(chosen_js, picked), 15, f"点了类目「{category}」但没选上")
     log(f"类目：{category}")
     _pause(1.0, 2.0)                # 选了类目以后右边会带出品牌，等它出来
 
