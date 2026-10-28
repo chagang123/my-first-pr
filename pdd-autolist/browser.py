@@ -26,7 +26,10 @@ def _free_port():
 
 
 def close_edge(browser, proc):
-    """让 Edge 自己正常退出（会保存登录状态）；没反应再强制结束整棵进程"""
+    """让 Edge 自己正常退出（会保存登录状态）；没反应再强制结束整棵进程。
+    proc 是 None 说明是接管了别人开着的 Edge（比如「打开拼多多Edge」开的），用完不关，留给人家接着用"""
+    if proc is None:
+        return
     try:
         browser.new_browser_cdp_session().send("Browser.close")
         if proc:
@@ -131,7 +134,9 @@ def open_remote_edge(pw):
 def file_payload(path):
     """上传框用：远程时文件在这边，Playwright 只会把路径传过去，客户电脑上找不到。
     改成把文件内容直接发过去，用法 page.set_input_files(sel, [file_payload(p) for p in 图片])"""
-    import mimetypes
+    # 类型自己写死，不问 Windows：有的电脑注册表里 .jpg 登记成 image/pjpeg，
+    # 拼多多上传框只收 image/jpeg、image/png，类型不对会被悄悄忽略（主图一直 0/10，也不报错）
     path = Path(path)
-    return {"name": path.name, "mimeType": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
-            "buffer": path.read_bytes()}
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+            ".mp4": "video/mp4"}.get(path.suffix.lower(), "application/octet-stream")
+    return {"name": path.name, "mimeType": mime, "buffer": path.read_bytes()}

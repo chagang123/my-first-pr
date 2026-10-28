@@ -23,6 +23,7 @@ MUTED = "#777777"
 LINE = "#e5e5e5"
 BG = "#ffffff"
 FONT = "Microsoft YaHei UI"
+VERSION = "1028-1100"   # 每次打包改一下，面板标题上显示，方便确认客户用的是哪一版
 
 
 class Panel:
@@ -35,7 +36,7 @@ class Panel:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.last_result = None
 
-        root.title("拼多多自动上架")
+        root.title(f"拼多多自动上架　版本 {VERSION}")
         root.geometry("860x720")
         root.minsize(760, 600)
         root.configure(bg=BG)
@@ -83,6 +84,7 @@ class Panel:
         top = ttk.Frame(self.root)
         top.pack(fill="x", pady=(20, 4), **pad)
         ttk.Label(top, text="拼多多自动上架", style="Title.TLabel").pack(side="left")
+        ttk.Label(top, text=f"版本 {VERSION}", style="Muted.TLabel").pack(side="left", padx=(10, 0), pady=(6, 0))
         self.count_lbl = ttk.Label(top, text="", style="Big.TLabel")
         self.count_lbl.pack(side="right")
 
@@ -102,20 +104,25 @@ class Panel:
         sec = ttk.Frame(self.root)
         sec.pack(fill="x", pady=(14, 4), **pad)
         ttk.Label(sec, text="店铺", style="Section.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(sec, text="勾上要上的店。名字用来区分登录状态和上架记录，改了名要重新扫码", style="Muted.TLabel").grid(
+        ttk.Label(sec, text="勾上要上的店。名字用来区分登录状态，改了名要重新扫码", style="Muted.TLabel").grid(
             row=0, column=1, columnspan=4, sticky="w", padx=(12, 0))
         self.shop_rows = []
         for i, shop in enumerate(core.SETTINGS["店铺"], start=1):
             use = tk.BooleanVar(value=True)
             name = tk.StringVar(value=shop["名称"])
+            kind = tk.StringVar(value=shop.get("类型", "普通"))
             limit = tk.StringVar(value=str(shop["每天最多上架"]))
             self._check(sec, "", use).grid(row=i, column=0, sticky="w", pady=4)
-            ttk.Entry(sec, textvariable=name, width=16).grid(row=i, column=1, sticky="w", padx=(12, 16))
+            box = ttk.Frame(sec)
+            box.grid(row=i, column=1, sticky="w", padx=(12, 16))
+            ttk.Entry(box, textvariable=name, width=12).pack(side="left")
+            ttk.Combobox(box, textvariable=kind, values=["普通", "旗舰"], width=5, state="readonly").pack(
+                side="left", padx=(6, 0))
             ttk.Label(sec, text="每天最多上").grid(row=i, column=2, sticky="w")
             ttk.Spinbox(sec, from_=1, to=500, textvariable=limit, width=5).grid(row=i, column=3, sticky="w", padx=6)
             today = core.today_count(core.load_record(), shop["名称"])
             ttk.Label(sec, text=f"个　今天已上 {today} 个", style="Muted.TLabel").grid(row=i, column=4, sticky="w")
-            self.shop_rows.append((use, name, limit))
+            self.shop_rows.append((use, name, limit, kind))
 
         # 常用设置
         sec2 = ttk.Frame(self.root)
@@ -199,8 +206,8 @@ class Panel:
         f = core.HERE / "设置.json"
         cfg = json.loads(f.read_text(encoding="utf-8")) if f.exists() else dict(core.DEFAULT_SETTINGS)
         shops = []
-        for use, name, limit in self.shop_rows:
-            shops.append({"名称": name.get().strip() or "店铺", "每天最多上架": int(limit.get())})
+        for use, name, limit, kind in self.shop_rows:
+            shops.append({"名称": name.get().strip() or "店铺", "类型": kind.get(), "每天最多上架": int(limit.get())})
         cfg["店铺"] = shops
         a, b = int(self.gap_a.get()), int(self.gap_b.get())
         cfg["两个商品之间等几秒"] = [min(a, b), max(a, b)]
@@ -216,7 +223,7 @@ class Panel:
         core.reload_settings()
 
     def chosen_shops(self):
-        names = {name.get().strip() for use, name, _ in self.shop_rows if use.get()}
+        names = {name.get().strip() for use, name, _, _ in self.shop_rows if use.get()}
         return [s for s in core.SETTINGS["店铺"] if s["名称"] in names]
 
     def run(self, what):
@@ -233,7 +240,7 @@ class Panel:
             return
         if what == "上架" and not messagebox.askokcancel(
                 "开始上架", f"要给 {'、'.join(s['名称'] for s in shops)} 上架「{self.data_dir.name}」里的商品，"
-                          "上过的会自动跳过。\n\n开始后浏览器会自己操作，别去点它。"):
+                          "文件夹里的每个商品都会上一遍（上过的也会再上）。\n\n开始后浏览器会自己操作，别去点它。"):
             return
         core.STOP.clear()
         self.bar.configure(value=0, maximum=1)

@@ -25,7 +25,9 @@ HERE = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__
 RECORD_FILE = HERE / "上架记录.json"
 LOG_FILE = HERE / "运行日志.txt"
 DEFAULT_SETTINGS = {
-    "店铺": [{"名称": "店铺1", "每天最多上架": 20}, {"名称": "店铺2", "每天最多上架": 20}],
+    # 类型：普通 / 旗舰，两种店的发布页不一样，走不同的上架流程
+    "店铺": [{"名称": "普通店", "类型": "普通", "每天最多上架": 20},
+             {"名称": "旗舰店", "类型": "旗舰", "每天最多上架": 20}],
     "两个商品之间等几秒": [60, 180],
     "价格": {"来源": "表格", "公式": "(原价+1.6+1)/0.85", "取整到": 0.1, "单买价比拼单价高": 1},
     "标题最长字节": 60,
@@ -61,6 +63,44 @@ def load_settings():
     return {**DEFAULT_SETTINGS, **json.loads(f.read_text(encoding="utf-8"))}
 
 
+# 老版本的店铺叫「店铺1」「店铺2」、没有类型：店铺1 就是客户的普通店，店铺2 留给旗舰店
+_OLD_NAMES = {"店铺1": ("普通店", "普通"), "店铺2": ("旗舰店", "旗舰")}
+
+
+def _migrate_shops():
+    """把老设置里的「店铺1/店铺2」改成「普通店/旗舰店」，登录数据文件夹和上架记录跟着改名，不用重新扫码"""
+    f = HERE / "设置.json"
+    cfg = json.loads(f.read_text(encoding="utf-8"))
+    changed = False
+    renames = {}
+    for shop in cfg.get("店铺", []):
+        if "类型" in shop:
+            continue
+        old = shop["名称"]
+        new, kind = _OLD_NAMES.get(old, (old, "普通"))
+        shop["名称"], shop["类型"] = new, kind
+        renames[old] = new
+        changed = True
+    if not changed:
+        return
+    f.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    for old, new in renames.items():
+        src, dst = HERE / "浏览器数据" / old, HERE / "浏览器数据" / new
+        if old != new and src.exists() and not dst.exists():
+            try:
+                src.rename(dst)
+            except OSError:
+                pass        # Edge 还开着、文件夹被占用时改不了名，那就重新扫一次码
+    if RECORD_FILE.exists():
+        rec = json.loads(RECORD_FILE.read_text(encoding="utf-8"))
+        for old, new in renames.items():
+            if old in rec and new not in rec:
+                rec[new] = rec.pop(old)
+        RECORD_FILE.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+load_settings()
+_migrate_shops()
 SETTINGS = load_settings()
 
 
@@ -78,10 +118,15 @@ def log(msg):
 
 
 def load_record():
-    """{店铺名: {资料里的商品ID: {"时间", "拼多多商品ID"}}}，中途断了重开不会重复上"""
-    if RECORD_FILE.exists():
-        return json.loads(RECORD_FILE.read_text(encoding="utf-8"))
-    return {}
+    """{店铺名: [{"商品ID", "时间", "拼多多商品ID"}, ...]}，只用来算今天上了几个、留个底。
+    同一个商品可以在同一个店重复上，所以是列表；老版本存的是 {商品ID: {...}}，读的时候转一下"""
+    if not RECORD_FILE.exists():
+        return {}
+    rec = json.loads(RECORD_FILE.read_text(encoding="utf-8"))
+    for shop, v in rec.items():
+        if isinstance(v, dict):
+            rec[shop] = [{"商品ID": gid, **info} for gid, info in v.items()]
+    return rec
 
 
 def save_record(record):
@@ -90,7 +135,7 @@ def save_record(record):
 
 def today_count(record, shop):
     today = time.strftime("%Y-%m-%d")
-    return sum(1 for v in record.get(shop, {}).values() if v["时间"].startswith(today))
+    return sum(1 for v in record.get(shop, []) if v["时间"].startswith(today))
 
 
 def apply_price(p):
@@ -224,7 +269,10 @@ def cmd_upload(root: Path, shops, do_submit=True):
     with sync_playwright() as pw:
         for shop in shops:
             name = shop["名称"]
-            todo = [p for p in products if p.goods_id not in record.get(name, {})]
+            if shop.get("类型") == "旗舰":
+                log(f"【{name}】旗舰店的上架流程还在做，这次先跳过")
+                continue
+            todo = list(products)       # 同一个店可以重复上同一个商品，不再跳过上过的
             if do_submit:
                 left = shop["每天最多上架"] - today_count(record, name)
                 if left <= 0:
@@ -258,7 +306,8 @@ def cmd_upload(root: Path, shops, do_submit=True):
                     category, gid = publish(page, p, SETTINGS, log, do_submit)
                     mins = (time.time() - start) / 60
                     if do_submit:
-                        record.setdefault(name, {})[p.goods_id] = {"时间": time.strftime("%Y-%m-%d %H:%M"), "拼多多商品ID": gid}
+                        record.setdefault(name, []).append(
+                            {"商品ID": p.goods_id, "时间": time.strftime("%Y-%m-%d %H:%M"), "拼多多商品ID": gid})
                         save_record(record)
                         log(f"上架成功，拼多多商品ID {gid}，用了 {mins:.1f} 分钟")
                         results.append([name, p.goods_id, p.title, len(p.skus), category, "成功", gid, ""])

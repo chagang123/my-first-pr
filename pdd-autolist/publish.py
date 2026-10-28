@@ -11,14 +11,61 @@ import re
 import time
 
 START_URL = "https://mms.pinduoduo.com/goods/category"
-REMOTE = False   # 通过隧道控制客户电脑上的 Edge 时设成 True：图片要把内容传过去，光传路径客户那边找不到
+REMOTE = False   # 通过隧道控制客户电脑上的 Edge 时设成 True（只用来区分日志，传图方式两边一样）
 
 
-def _files(paths):
-    if not REMOTE:
-        return [str(x) for x in paths]
+_INJECT_JS = r"""(el, files) => {
+  const dt = new DataTransfer();
+  for (const f of files) {
+    const bin = atob(f.b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    dt.items.add(new File([u], f.name, {type: f.type}));
+  }
+  el.files = dt.files;
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+  el.dispatchEvent(new Event('change', {bubbles: true}));
+  return el.files.length;
+}"""
+
+
+def _upload(page, locator, paths, done, log, what, tries=3, wait_each=15, wait_total=180):
+    """塞文件进上传框，等 done() 为真。
+    本地跑得快：页面刚出来、上传框还没接上拼多多的处理程序时塞进去的文件会被丢掉，也不报错。
+    所以先等页面稳一下，塞完 wait_each 秒没反应就重新塞，最多 tries 次"""
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+    page.wait_for_timeout(1500)
+    for i in range(tries):
+        _put_files(locator.first, paths)
+        end = time.time() + wait_each
+        while time.time() < end:
+            if done():
+                break
+            page.wait_for_timeout(500)
+        else:
+            if i < tries - 1:
+                log(f"{what}没反应，第 {i + 2} 次重新放")
+                page.wait_for_timeout(2000)
+                continue
+            raise PublishError(f"{what}放了 {tries} 次拼多多都没收")
+        break
+    _wait(done, wait_total, f"{what}还没传完")
+
+
+def _put_files(inp, paths):
+    """把图片塞进上传框：在页面里用脚本造出文件对象放进去，再触发 change。
+    不用 Playwright 的 set_input_files：在客户电脑本地跑时它交过去的文件拼多多不认（主图一直 0/10，也不报错），
+    同样的图从远程用脚本塞就能传。图片类型按后缀写死，不问 Windows"""
+    import base64
     from browser import file_payload
-    return [file_payload(x) for x in paths]
+    files = []
+    for x in paths:
+        fp = file_payload(x)
+        files.append({"name": fp["name"], "type": fp["mimeType"], "b64": base64.b64encode(fp["buffer"]).decode()})
+    inp.evaluate(_INJECT_JS, files)
 
 
 class PublishError(Exception):
@@ -113,8 +160,10 @@ def page_one(page, p, cfg, log):
     for batch in ([mains, [mains[0]]] if repeat_first else [mains]):
         total += len(batch)
         log(f"上传主图 {len(batch)} 张" if total == len(batch) else "主图最后再放一次第一张")
-        upload.first.set_input_files(_files(batch))
-        # 上传按钮上写着「(5/10)」；传满 10 张时按钮会消失
+        # 上传按钮上写着「(5/10)」；传满 10 张时按钮会消失。上传中的张数会先涨上去，所以「开始传了」看张数有没有变
+        before = total - len(batch)
+        started = lambda: not page.locator(f"text=/\\({before}\\/10\\)/").count() or upload.count() == 0
+        _upload(page, upload, batch, started, log, "主图")
         _wait(lambda: page.locator(f"text=/\\({total}\\/10\\)/").count() > 0
               or (total >= 10 and upload.count() == 0), 120, "主图还没传完")
 
@@ -200,9 +249,10 @@ def upload_details(page, p, log):
     if not details:
         return
     log(f"上传详情图 {len(details)} 张")
-    page.locator("[id=detail_pic] input[type=file]").first.set_input_files(_files(details))
-    _wait(lambda: page.locator(f"[id=detail_pic] >> text=/{len(details)}\\s*\\/\\s*50/").count() > 0,
-          180, "详情图还没传完")
+    done = lambda: page.locator(f"[id=detail_pic] >> text=/{len(details)}\\s*\\/\\s*50/").count() > 0
+    started = lambda: done() or not page.locator("[id=detail_pic] >> text=/\\b0\\s*\\/\\s*50/").count()
+    _upload(page, page.locator("[id=detail_pic] input[type=file]"), details, started, log, "详情图")
+    _wait(done, 180, "详情图还没传完")
 
 
 def _confirm_modal(page):
@@ -394,7 +444,16 @@ def fill_prices(page, p, log):
         if s.image is not None and not cells.nth(4).locator("img, [class*=imgContainer]").count():
             f = cells.nth(4).locator("input[type=file]")
             if f.count():
-                f.first.set_input_files(_files([s.image]))
+                cell = cells.nth(4)
+                for k in range(3):
+                    _put_files(f.first, [s.image])
+                    end = time.time() + 8
+                    while time.time() < end and not cell.locator("img, [class*=imgContainer]").count():
+                        page.wait_for_timeout(400)
+                    if cell.locator("img, [class*=imgContainer]").count():
+                        break
+                    if k < 2:
+                        log(f"  「{s.name}」的预览图没反应，再放一次")
         if (i + 1) % 10 == 0:
             log(f"  已填 {i + 1}/{len(todo)} 行价格")
         time.sleep(random.uniform(0.2, 0.5))
