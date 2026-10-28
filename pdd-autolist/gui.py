@@ -23,7 +23,7 @@ MUTED = "#777777"
 LINE = "#e5e5e5"
 BG = "#ffffff"
 FONT = "Microsoft YaHei UI"
-VERSION = "1028-1100"   # 每次打包改一下，面板标题上显示，方便确认客户用的是哪一版
+VERSION = "1028-1420"   # 每次打包改一下，面板标题上显示，方便确认客户用的是哪一版
 
 
 class Panel:

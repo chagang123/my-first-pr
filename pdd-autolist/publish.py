@@ -193,6 +193,11 @@ def page_one(page, p, cfg, log):
     _pause()
 
     _click(page.locator("#bottomSubmitBtnId"))
+    return category, _wait_page_two(page)
+
+
+def _wait_page_two(page):
+    """点了「下一步 / 确认发布该类商品」以后，找到真正的第二页（填写商品信息）"""
     # 拼多多有时会关掉这个标签页、在新标签页里打开第二页，所以在所有标签页里找
     ctx = page.context
     found = []
@@ -223,7 +228,74 @@ def page_one(page, p, cfg, log):
         if not page.is_closed() and on_page_two() and found[0] == page:
             break
     page.on("dialog", lambda d: d.accept())
-    return category, page
+    return page
+
+
+# ---------- 旗舰店 ----------
+# 旗舰店的发布页和普通店不一样（2026-10-28 远程录的，采集结果/旗舰店/）：
+#   第一页只有「选择分类」：标题粘进分类搜索框 → 下拉里选第一个 → 品牌自动带出 → 确认发布该类商品
+#   第二页传主图、填标题；品牌、属性拼多多会自动带出，不用管
+#   规格区一开始一个规格类型都没有：点「添加规格类型」选第一个（型号），不用删
+#   后面价格、服务、提交和普通店一样
+
+def page_one_flagship(page, p, cfg, log):
+    page.goto(START_URL)
+    page.wait_for_load_state("domcontentloaded")
+    if "/login" in page.url:
+        raise PublishError("没登录：请先在这个浏览器里扫码登录拼多多后台")
+    wait_captcha(page, log)
+
+    search = page.get_by_placeholder("请输入关键词搜索分类")
+    search.wait_for(state="visible", timeout=30000)
+    options = page.locator("[data-testid=beast-core-search-panel] li")
+    # 先点一下搜索框再填（不点直接填、或者填完再按键，下拉不会出来）；下拉挂在页面最外层，看个数就行
+    for i in range(3):
+        _click(search)
+        search.fill(p.title)
+        end = time.time() + 12
+        while time.time() < end and not options.count():
+            page.wait_for_timeout(500)
+        if options.count():
+            break
+        if i == 2:
+            raise PublishError("在分类搜索框输入标题以后，没有弹出类目")
+        search.fill("")
+        page.wait_for_timeout(1000)
+    category = options.first.inner_text().strip()
+    _click(options.first)
+    log(f"类目：{category}")
+    _pause(1.0, 2.0)                # 选了类目以后右边会带出品牌，等它出来
+
+    confirm = page.locator("button[data-e2e-id=e2e-publish-button]")
+    if not confirm.count():
+        confirm = page.get_by_role("button", name=re.compile("确认发布该类商品"))
+    _click(confirm.first)
+    return category, _wait_page_two(page)
+
+
+def flagship_mains_title(page, p, cfg, log):
+    """旗舰店第二页：传主图（首尾都放第一张）、填标题"""
+    box = page.locator("[id='basic.carousel_gallery']")
+    upload = box.locator("input[type=file]")
+    count_of = lambda: int((re.search(r"已上传\s*(\d+)\s*/\s*10", box.inner_text()) or [0, 0])[1])
+    repeat_first = cfg.get("主图最后再放一次第一张", True) and len(p.main_images) > 1
+    mains = p.main_images[:9 if repeat_first else 10]
+    start = count_of()
+    if start:
+        log(f"主图已经有 {start} 张，不再上传")
+    else:
+        total = 0
+        for batch in ([mains, [mains[0]]] if repeat_first else [mains]):
+            before = total
+            total += len(batch)
+            log(f"上传主图 {len(batch)} 张" if before == 0 else "主图最后再放一次第一张")
+            _upload(page, upload, batch, lambda: count_of() > before or upload.count() == 0, log, "主图")
+            _wait(lambda: count_of() >= total or upload.count() == 0, 120, "主图还没传完")
+
+    title = page.locator("[id='basic.goods_name'] input").first
+    if (title.input_value() or "").strip() != p.title:
+        title.fill(p.title)
+        title.press("Tab")
 
 
 # ---------- 第二页 ----------
@@ -283,7 +355,12 @@ def add_specs(page, p, log):
         _wait(lambda: rows.count() == 1, 10, "点了「添加规格类型」没出来新的一行")
         _click(rows.first.locator("input[data-testid=beast-core-select-htmlInput]").first)
         _pause()
-        _choose_option(page, "型号")
+        opt = page.locator("[data-testid*=option], li[role=option], li").filter(
+            has_text=re.compile(r"^\s*型号(\s*常用)?\s*$")).first
+        opt.wait_for(state="visible", timeout=8000)
+        _click(opt)
+        _wait(lambda: rows.first.locator("input[data-testid=beast-core-select-htmlInput]").first.input_value() == "型号",
+              10, "规格类型没选上「型号」")
         _pause()
     row = rows.first
     log(f"规格类型用「{row.locator('input').first.input_value()}」")
@@ -539,7 +616,7 @@ STEPS = ["第一页", "属性", "详情图", "规格", "价格", "服务", "核�
 LAST_STEP = "第一页"   # 正在做哪一步，断线重连时从这里接着跑
 
 
-def publish(page, p, cfg, log, do_submit=True, start="第一页"):
+def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通"):
     """发一个商品，返回 (类目, 商品ID)。do_submit=False 时填完停在页面上不提交，给人检查。
     start 是从哪一步开始：调试时卡住了，改完代码在当前页面上接着跑，不用从头再来"""
     if start not in STEPS:
@@ -547,11 +624,16 @@ def publish(page, p, cfg, log, do_submit=True, start="第一页"):
     global LAST_STEP
     todo = STEPS[STEPS.index(start):]
     category = "（接着跑，没重选）"
+    flagship = kind == "旗舰"
     if "第一页" in todo:
         LAST_STEP = "第一页"
-        category, page = page_one(page, p, cfg, log)
+        if flagship:
+            category, page = page_one_flagship(page, p, cfg, log)
+            flagship_mains_title(page, p, cfg, log)
+        else:
+            category, page = page_one(page, p, cfg, log)
     wait_captcha(page, log)
-    if "属性" in todo:
+    if "属性" in todo and not flagship:     # 旗舰店的品牌、属性拼多多自动带出，不用填
         LAST_STEP = "属性"
         fill_properties(page, cfg, log)
     if "详情图" in todo:

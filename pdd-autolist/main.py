@@ -269,9 +269,6 @@ def cmd_upload(root: Path, shops, do_submit=True):
     with sync_playwright() as pw:
         for shop in shops:
             name = shop["名称"]
-            if shop.get("类型") == "旗舰":
-                log(f"【{name}】旗舰店的上架流程还在做，这次先跳过")
-                continue
             todo = list(products)       # 同一个店可以重复上同一个商品，不再跳过上过的
             if do_submit:
                 left = shop["每天最多上架"] - today_count(record, name)
@@ -303,7 +300,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
                 page = current_page(ctx, page)
                 start = time.time()
                 try:
-                    category, gid = publish(page, p, SETTINGS, log, do_submit)
+                    category, gid = publish(page, p, SETTINGS, log, do_submit, kind=shop.get("类型", "普通"))
                     mins = (time.time() - start) / 60
                     if do_submit:
                         record.setdefault(name, []).append(
@@ -358,7 +355,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
     return None
 
 
-def cmd_remote_try(root: Path, start="第一页", do_submit=False):
+def cmd_remote_try(root: Path, start="第一页", do_submit=False, kind="普通"):
     """开发用：通过隧道连客户电脑上开着的 Edge，试填第一个商品，不提交、不关客户的浏览器。
     start 不是「第一页」时，在客户当前停着的第二页上从这一步接着跑。
     隧道跑几分钟会断一次，断了自动重连，从断掉的那一步接着跑"""
@@ -392,7 +389,7 @@ def cmd_remote_try(root: Path, start="第一页", do_submit=False):
                     log(f"在客户当前的页面上，从「{start}」这一步接着跑")
                 page.on("dialog", lambda d: d.accept())
                 try:
-                    category, gid = publish.publish(page, p, SETTINGS, log, do_submit=do_submit, start=start)
+                    category, gid = publish.publish(page, p, SETTINGS, log, do_submit=do_submit, start=start, kind=kind)
                     if do_submit:
                         log(f"提交成功，拼多多商品ID {gid}")
                     else:
@@ -466,7 +463,8 @@ def main():
     # 「从规格」这种参数表示从哪一步接着跑，其余参数是资料文件夹、店铺
     start = next((a[1:] for a in sys.argv[2:] if a.startswith("从")), "第一页")
     remote_submit = "提交" in sys.argv[2:]     # 远程试填加「提交」才会点提交并上架，要先问过客户
-    args = [a for a in sys.argv[2:] if not a.startswith("从") and a != "提交"]
+    kind = "旗舰" if "旗舰" in sys.argv[2:] else "普通"     # 远程试填加「旗舰」走旗舰店流程
+    args = [a for a in sys.argv[2:] if not a.startswith("从") and a not in ("提交", "旗舰")]
     root = Path(args[0]) if args else HERE / "待上架"
     shop = args[1] if len(args) > 1 else None
     if cmd == "检查":
@@ -476,7 +474,7 @@ def main():
     elif cmd == "上架":
         cmd_upload(root, pick_shops(shop), do_submit=True)
     elif cmd == "远程试填":
-        cmd_remote_try(root, start, remote_submit)
+        cmd_remote_try(root, start, remote_submit, kind)
     else:
         print(__doc__)
 

@@ -29,7 +29,16 @@ def main():
             if not pages:
                 print("客户的 Edge 里没有拼多多页面")
                 return
-            page = pages[-1]
+            # 发布页常开在新标签页里；取客户眼前正在看的那个标签，看不出来就取发布页
+            def visible(pg):
+                try:
+                    return pg.evaluate("document.visibilityState") == "visible"
+                except Exception:
+                    return False
+            shown = [p for p in pages if visible(p)]
+            goods = [p for p in pages if "/goods/" in p.url]
+            visible_goods = [p for p in goods if p in shown]
+            page = (visible_goods or goods or shown or pages)[-1]
             out = HERE / "采集结果" / shop / f"{time.strftime('%m%d_%H%M%S')}_{step}"
             out.mkdir(parents=True, exist_ok=True)
             (out / "网址.txt").write_text(page.url, encoding="utf-8")

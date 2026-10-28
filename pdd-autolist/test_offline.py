@@ -86,6 +86,22 @@ with sync_playwright() as pw:
     pg = load(ctx, PAGE2_EMPTY_IMG)
     row = publish._find_row(pg, "大扁头自钻(兰锌)M4.2", tries=2)
     check("预览图格子里有上传框", row.locator("td").nth(4).locator("input[type=file]").count() == 1)
+    print("== 旗舰店（第一页选分类、第二页主图和标题）")
+    QJ = Path(__file__).resolve().parent / "采集结果/旗舰店"
+    snaps = {p.name.split("_", 2)[-1]: p for p in QJ.iterdir()} if QJ.exists() else {}
+    if "01b_再存一次" in snaps:
+        pg = load(ctx, snaps["01b_再存一次"] / "网页.html")
+        check("分类搜索框", pg.get_by_placeholder("请输入关键词搜索分类").count() == 1)
+        opts = pg.locator("[data-testid=beast-core-search-panel] li")
+        check("搜索出来的类目", opts.count() >= 1, opts.first.inner_text().strip() if opts.count() else "")
+        check("确认发布该类商品按钮", pg.locator("button[data-e2e-id=e2e-publish-button]").count() == 1)
+    if "04" in snaps:
+        pg = load(ctx, snaps["04"] / "网页.html")
+        box = pg.locator("[id='basic.carousel_gallery']")
+        m = __import__("re").search(r"已上传\s*(\d+)\s*/\s*10", box.inner_text())
+        check("轮播图上传框和张数", box.locator("input[type=file]").count() == 1 and m is not None,
+              f"已上传 {m.group(1) if m else '?'} 张")
+        check("第二页标题框", pg.locator("[id='basic.goods_name'] input").count() == 1)
     browser.close()
 
 print(f"\n{'全部通过' if not fails else f'{fails} 项没通过'}")
