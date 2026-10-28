@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>叠叠高</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<!-- 首页 -->
+<section id="home" class="screen">
+  <div id="hero">
+    <canvas id="hero-cv"></canvas>
+    <div class="hero-text">
+      <h1><span>叠叠</span><em>高</em></h1>
+      <p>点一下落下，对得越准堆得越高</p>
+    </div>
+  </div>
+  <div class="home-panel">
+    <p id="home-best">最高通关 —</p>
+    <button id="btn-start" type="button" class="btn-main">开始挑战<svg class="arrow" viewBox="0 0 24 24"><path d="M3 12h16M13 6l6 6-6 6"/></svg></button>
+    <nav class="home-nav">
+      <button id="nav-rank" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0z"/><path d="M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4"/><path d="M12 13v4M8.5 20h7M10 17h4v3h-4z"/></svg>
+        <span>排行榜</span>
+      </button>
+      <button id="nav-help" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7"/><circle cx="12" cy="17" r=".6" class="dot"/></svg>
+        <span>玩法说明</span>
+      </button>
+      <button id="nav-sound" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="mute" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+        <span id="sound-label">声音 开</span>
+      </button>
+      <button id="nav-follow" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="8" r="3.6"/><path d="M3.5 19.5a6.5 6.5 0 0 1 13 0"/><path class="plus" d="M19 7v6M16 10h6"/></svg>
+        <span id="follow-label">关注作者</span>
+      </button>
+    </nav>
+  </div>
+</section>
+
+<!-- 游戏 -->
+<section id="game" class="screen hidden">
+  <header id="bar">
+    <button id="btn-back" type="button" aria-label="返回主页">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+    </button>
+    <div class="bar-mid">
+      <div id="level">第 1 关</div>
+      <div class="bar-track"><div id="bar-fill"></div></div>
+      <div id="progress">最佳 0 层</div>
+    </div>
+    <button id="btn-restart" type="button" aria-label="重新开始本关">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12a6.5 6.5 0 1 0 2-4.7"/><path d="M5 4v4h4"/></svg>
+    </button>
+  </header>
+  <div id="stage"><canvas id="cv"></canvas></div>
+</section>
+
+<!-- 结算 -->
+<div id="overlay" class="hidden">
+  <div id="sheet">
+    <p id="r-kicker"></p>
+    <div class="r-score"><strong id="r-num"></strong><span id="r-unit"></span></div>
+    <div class="r-card">
+      <span id="r-tag"></span>
+      <h2 id="r-title"></h2>
+      <p id="r-sub"></p>
+      <dl id="r-stats"></dl>
+      <div class="r-track"><div id="r-fill"></div></div>
+      <p id="r-hint"></p>
+    </div>
+    <button id="r-main" type="button" class="btn-main"></button>
+    <p id="r-note"></p>
+    <button id="r-second" type="button" class="btn-line"></button>
+    <button id="r-third" type="button" class="btn-text"></button>
+    <button id="r-fourth" type="button" class="btn-text"></button>
+  </div>
+</div>
+
+<!-- 弹框 -->
+<div id="dialog" class="hidden">
+  <div id="dlg-box">
+    <div id="dlg-art"></div>
+    <p id="dlg-kicker"></p>
+    <h3 id="dlg-title"></h3>
+    <div id="dlg-body"></div>
+    <button id="dlg-main" type="button" class="btn-main"></button>
+    <button id="dlg-second" type="button" class="btn-text"></button>
+  </div>
+</div>
+
+<div id="toast" class="hidden"></div>
+
+<script src="./game.js"></script>
+</body>
+</html>
