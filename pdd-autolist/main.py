@@ -163,6 +163,8 @@ def check(p):
     no_img = [s.name for s in p.skus if s.image is None]
     if no_img:
         warns.append(f"{len(no_img)} 个 SKU 没找到图：{'、'.join(no_img[:5])}{'…' if len(no_img) > 5 else ''}")
+    if p.unused_images:
+        warns.append(f"{len(p.unused_images)} 张 SKU 图对不上规格名，没用上：{'、'.join(f.name for f in p.unused_images[:3])}")
     no_price = [s.name for s in p.skus if not s.group_price or not s.single_price]
     if no_price:
         errors.append(f"{len(no_price)} 个 SKU 没有价格（表格要用 Excel 打开保存一次，公式才有结果）")

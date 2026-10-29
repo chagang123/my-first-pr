@@ -39,6 +39,7 @@ class Product:
     skus: list[Sku] = field(default_factory=list)
     main_images: list[Path] = field(default_factory=list)
     detail_images: list[Path] = field(default_factory=list)
+    unused_images: list[Path] = field(default_factory=list)   # SKU 图文件夹里对不上任何规格的图
 
 
 def _num(name):
@@ -55,6 +56,12 @@ def _images(folder, keyword):
 
 def _norm(s):
     return BAD_NAME_CHARS.sub("_", s).replace(" ", "").strip()
+
+
+def _loose(s):
+    """宽松对法：空格、下划线、全角括号都不算，「M3.5 18（50个）」和「M3.5*18(50个)」算同一个"""
+    s = BAD_NAME_CHARS.sub("", s).replace("（", "(").replace("）", ")")
+    return re.sub(r"[\s_]", "", s).lower()
 
 
 def _float(v):
@@ -110,9 +117,22 @@ def read_product(folder: Path) -> Product:
 
     p.main_images = _images(folder, "主图")
     p.detail_images = _images(folder, "详情图")
-    sku_imgs = {_norm(re.sub(r"^SKU图_\d+_", "", f.stem)): f for f in _images(folder, "SKU图")}
+    # 先按原样对（文件名去掉「SKU图_046_」这种前缀），对不上的再按去掉空格和下划线对。
+    # 2026-10-29 客户自己补了一张「SKU图_046.1_M3.5_18…」，编号带小数点（还可能是空格隔开），老写法认不出来，
+    # 那个规格就没传图，提交时拼多多报「1个错误项未处理」
+    files = [(f, re.sub(r"^SKU图[_\s]*[\d.]+[_\s]*", "", f.stem)) for f in _images(folder, "SKU图")]
+    strict = {_norm(n): f for f, n in files}
+    loose = {_loose(n): f for f, n in files}
     for s in p.skus:
-        s.image = sku_imgs.get(_norm(s.name))
+        s.image = strict.get(_norm(s.name))
+    used = {s.image for s in p.skus}
+    for s in p.skus:
+        if s.image is None:
+            f = loose.get(_loose(s.name))
+            if f is not None:
+                s.image = f
+                used.add(f)
+    p.unused_images = [f for f, _ in files if f not in used]
     return p
 
 
