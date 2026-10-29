@@ -118,6 +118,19 @@ def _wait(cond, timeout, what):
     raise PublishError(f"等了 {timeout} 秒，{what}")
 
 
+def _wait_fast(page, cond, timeout, what):
+    """和 _wait 一样，但每 0.08 秒看一次：加规格、传预览图这种一个商品要做几百次的，每次少等一点省很多"""
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            if cond():
+                return
+        except Exception:
+            pass
+        page.wait_for_timeout(80)
+    raise PublishError(f"等了 {timeout} 秒，{what}")
+
+
 def _form_item(page, label):
     """按左边的标签文字找表单项，比如「品牌」「商品参考价」"""
     return page.locator("[data-testid=beast-core-form-item]").filter(
@@ -391,10 +404,9 @@ def add_specs(page, p, log):
         box.fill(s.name)
         box.press("Enter")
         # 填了一个，下面会自动多出一个空的输入框
-        _wait(lambda: names.count() > before or names.last.input_value() == "", 10, f"规格「{s.name}」没加上")
-        if (i + 1) % 10 == 0:
+        _wait_fast(page, lambda: names.count() > before or names.last.input_value() == "", 10, f"规格「{s.name}」没加上")
+        if (i + 1) % 20 == 0:
             log(f"  已加 {i + 1}/{len(todo)} 个")
-        time.sleep(random.uniform(0.05, 0.15))
 
 
 # 价格表在自己的滚动框里（表格外面一层 overflow:auto 的 div），鼠标滚轮滚的是整个网页，滚不动它，
@@ -538,16 +550,15 @@ def fill_prices(page, p, log):
                 cell = cells.nth(4)
                 for k in range(3):
                     _put_files(f.first, [s.image])
-                    end = time.time() + 8
-                    while time.time() < end and not cell.locator("img, [class*=imgContainer]").count():
-                        page.wait_for_timeout(400)
-                    if cell.locator("img, [class*=imgContainer]").count():
+                    try:
+                        _wait_fast(page, lambda: cell.locator("img, [class*=imgContainer]").count(), 8, "")
                         break
+                    except PublishError:
+                        pass
                     if k < 2:
                         log(f"  「{s.name}」的预览图没反应，再放一次")
         if (i + 1) % 10 == 0:
             log(f"  已填 {i + 1}/{len(todo)} 行价格")
-        time.sleep(random.uniform(0.05, 0.15))
 
     ref = max(s.single_price for s in p.skus) + 1
     _fill(page.get_by_placeholder("应大于商品最大单买价"), _num(ref))
