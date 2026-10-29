@@ -363,6 +363,34 @@ def _confirm_modal(page):
     btn.last.dispatch_event("click")
 
 
+_ADD_SPECS_JS = r"""async ({names, timeout}) => {
+  // 在规格值的最后一个空框里填名字、按回车，等下面多出一个新的空框再填下一个；返回填进去了几个
+  const row = document.querySelector('[id=spec] .goods-spec-row');
+  if (!row) return 0;
+  const boxes = () => [...row.querySelectorAll('input[placeholder*="请输入规格名称"]')];
+  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const enter = type => new KeyboardEvent(type, {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true});
+  let done = 0;
+  for (const name of names) {
+    const list = boxes();
+    const box = list[list.length - 1];
+    if (!box || box.value) break;
+    box.focus();
+    setValue.call(box, name);
+    box.dispatchEvent(new Event('input', {bubbles: true}));
+    box.dispatchEvent(enter('keydown'));
+    box.dispatchEvent(enter('keypress'));
+    box.dispatchEvent(enter('keyup'));
+    const end = Date.now() + timeout;
+    while (Date.now() < end && boxes().length <= list.length) await sleep(30);
+    if (boxes().length <= list.length) break;
+    done++;
+  }
+  return done;
+}"""
+
+
 def add_specs(page, p, log):
     spec_box = page.locator("[id=spec]")
     rows = spec_box.locator(".goods-spec-row")
@@ -398,7 +426,19 @@ def add_specs(page, p, log):
     have = {v.strip() for v in names.evaluate_all("els => els.map(e => e.value)") if v.strip()}
     todo = [s for s in p.skus if s.name not in have]
     log(f"添加 {len(todo)} 个规格" + (f"（页面上已经有 {len(have)} 个）" if have else ""))
-    for i, s in enumerate(todo):
+    # 先用页面里的脚本一次填 20 个（省掉每个规格来回好几趟的通信）；脚本填的拼多多不认，就改回下面一个个填
+    i = 0
+    while i < len(todo):
+        chunk = [s.name for s in todo[i:i + 20]]
+        n = page.evaluate(_ADD_SPECS_JS, {"names": chunk, "timeout": 5000})
+        i += n
+        if n:
+            log(f"  已加 {i}/{len(todo)} 个")
+        if n < len(chunk):
+            break
+    if i < len(todo):
+        log("快速添加没反应，改回一个个填" if i == 0 else f"快速添加停在第 {i} 个，后面一个个填")
+    for i, s in enumerate(todo[i:], start=i):
         before = names.count()
         box = names.last
         box.fill(s.name)
