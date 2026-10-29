@@ -394,7 +394,7 @@ def add_specs(page, p, log):
         _wait(lambda: names.count() > before or names.last.input_value() == "", 10, f"规格「{s.name}」没加上")
         if (i + 1) % 10 == 0:
             log(f"  已加 {i + 1}/{len(todo)} 个")
-        time.sleep(random.uniform(0.15, 0.4))
+        time.sleep(random.uniform(0.05, 0.15))
 
 
 # 价格表在自己的滚动框里（表格外面一层 overflow:auto 的 div），鼠标滚轮滚的是整个网页，滚不动它，
@@ -413,7 +413,7 @@ _SCROLL_JS = """(dy) => {
 
 def _scroll_table(page, dy):
     pos = page.evaluate(_SCROLL_JS, dy)
-    time.sleep(0.4)     # 等虚拟列表把新位置的行渲染出来
+    page.wait_for_timeout(250)     # 等虚拟列表把新位置的行渲染出来
     return pos
 
 
@@ -422,16 +422,15 @@ def _scroll_table_top(page):
 
 
 def _find_row(page, name, tries=60):
-    """规格表只渲染看得见的行，按规格名找，找不到就往下滚一点再找；滚到底还没有就从头再来一遍"""
+    """规格表只渲染看得见的行，按规格名找，找不到就往下滚一点再找；滚到底还没有就从头再来一遍。
+    行是按顺序填的，下一行一般就在眼前或下面一点，所以从当前位置往下找，不回表头
+    （以前每行都先回表头再往下滚，200 多个规格时越往后越慢，一个商品要 20 多分钟）"""
     title = page.locator(".sku-row-title").filter(has_text=re.compile(rf"^{re.escape(name)}$"))
     for i in range(tries):
         if title.count():
             row = page.locator("table tbody tr").filter(has=title).first
             row.scroll_into_view_if_needed()
             return row
-        if i == 0:
-            _scroll_table_top(page)
-            continue
         top, end = _scroll_table(page, 300)
         if top >= end:          # 滚到底了还没有，就从头再来一遍
             _scroll_table_top(page)
@@ -548,7 +547,7 @@ def fill_prices(page, p, log):
                         log(f"  「{s.name}」的预览图没反应，再放一次")
         if (i + 1) % 10 == 0:
             log(f"  已填 {i + 1}/{len(todo)} 行价格")
-        time.sleep(random.uniform(0.2, 0.5))
+        time.sleep(random.uniform(0.05, 0.15))
 
     ref = max(s.single_price for s in p.skus) + 1
     _fill(page.get_by_placeholder("应大于商品最大单买价"), _num(ref))
@@ -654,12 +653,16 @@ def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通")
     if "详情图" in todo:
         LAST_STEP = "详情图"
         upload_details(page, p, log)
+    t0 = time.time()
     if "规格" in todo:
         LAST_STEP = "规格"
         add_specs(page, p, log)
+        log(f"加规格用了 {int(time.time() - t0)} 秒")
+        t0 = time.time()
     if "价格" in todo:
         LAST_STEP = "价格"
         fill_prices(page, p, log)
+        log(f"填价格、传预览图用了 {int(time.time() - t0)} 秒")
     if "服务" in todo:
         LAST_STEP = "服务"
         fill_service(page, cfg, log)
