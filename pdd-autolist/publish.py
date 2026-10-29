@@ -441,7 +441,7 @@ def add_specs(page, p, log):
     # 加完核对：每个规格在价格表里都要有一行。拼多多没登记上的规格（填了值但没出价格行）删掉重加一次
     for k in range(2):
         state = _table_state(page)
-        missing = [s.name for s in p.skus if s.name not in state]
+        missing = [s.name for s in p.skus if _key(s.name) not in state]
         if not missing:
             break
         if k == 1:
@@ -483,14 +483,27 @@ def _scroll_table_top(page):
     _scroll_table(page, None)
 
 
+_MARK_ROW_JS = r"""(name) => {
+  const norm = s => s.replace(/\s+/g, ' ').trim();
+  const want = norm(name);
+  document.querySelectorAll('tr[data-autolist-row]').forEach(r => r.removeAttribute('data-autolist-row'));
+  for (const r of document.querySelectorAll('table tbody tr')) {
+    const t = r.querySelector('.sku-row-title');
+    if (t && norm(t.innerText) === want) { r.setAttribute('data-autolist-row', '1'); return true; }
+  }
+  return false;
+}"""
+
+
 def _find_row(page, name, tries=200):
     """规格表只渲染看得见的行，按规格名找，找不到就往下滚一点再找；滚到底还没有就从头再来一遍。
     行是按顺序填的，下一行一般就在眼前或下面一点，所以从当前位置往下找，不回表头
     （以前每行都先回表头再往下滚，200 多个规格时越往后越慢，一个商品要 20 多分钟）"""
-    title = page.locator(".sku-row-title").filter(has_text=re.compile(rf"^{re.escape(name)}$"))
+    # 用和 _table_state 一样的读法（innerText，空白合并）在页面里找，找到就给这一行打个记号再取它。
+    # 以前用 Playwright 的文字正则找，规格名里带空格的（「304外六角 M6*40-10个」）有时对不上，扫表看得到、找行却找不到
+    row = page.locator("tr[data-autolist-row]").first
     for i in range(tries):
-        if title.count():
-            row = page.locator("table tbody tr").filter(has=title).first
+        if page.evaluate(_MARK_ROW_JS, name):
             row.scroll_into_view_if_needed()
             return row
         top, end = _scroll_table(page, 300)
@@ -530,6 +543,11 @@ _ROWS_JS = """() => [...document.querySelectorAll('table tbody tr')].map(r => {
 }).filter(Boolean)"""
 
 
+def _key(name):
+    """规格名比较时把连续空白当成一个空格，页面上显示的和表格里写的空格不一定一样"""
+    return " ".join(name.split())
+
+
 def _table_state(page):
     """规格表是虚拟滚动的，从头滚到尾，每滚一下用一次脚本读出看得见的所有行：{规格名: 库存/拼单价/单买价/有没有图}"""
     state = {}
@@ -541,7 +559,7 @@ def _table_state(page):
     for _ in range(400):        # 300 多个规格时表格有三万多像素高，一次滚 400，到底就停
         before = len(state)
         for name, stock, gp, sp, img in page.evaluate(_ROWS_JS):
-            state[name] = {"stock": stock, "gp": gp, "sp": sp, "img": img}
+            state[_key(name)] = {"stock": stock, "gp": gp, "sp": sp, "img": img}
         same = same + 1 if len(state) == before else 0
         top, end = _scroll_table(page, 400)
         if top >= end:
@@ -572,7 +590,7 @@ def fill_prices(page, p, log):
     state = _table_state(page)
 
     def price_done(s):
-        st = state.get(s.name)
+        st = state.get(_key(s.name))
         try:
             return bool(st) and (abs(float(st["gp"]) - s.group_price) < 0.001
                                  and abs(float(st["sp"]) - s.single_price) < 0.001 and float(st["stock"]) == s.stock)
@@ -594,7 +612,7 @@ def fill_prices(page, p, log):
     has_img = lambda cell: cell.locator("img, [class*=imgContainer]").count() > 0
     for rnd in range(2):
         state = _table_state(page)
-        need = [s for s in p.skus if s.image is not None and not (state.get(s.name) or {}).get("img")]
+        need = [s for s in p.skus if s.image is not None and not (state.get(_key(s.name)) or {}).get("img")]
         if not need:
             break
         log(f"{'补传' if rnd else '传'}预览图 {len(need)} 张")
@@ -644,7 +662,7 @@ def verify_prices(page, p, log):
     state = _table_state(page)
     bad = []
     for s in p.skus:
-        st = state.get(s.name)
+        st = state.get(_key(s.name))
         if not st:
             bad.append(f"{s.name}：价格表里没有这一行")
             continue
