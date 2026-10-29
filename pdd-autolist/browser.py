@@ -138,5 +138,6 @@ def file_payload(path):
     # 拼多多上传框只收 image/jpeg、image/png，类型不对会被悄悄忽略（主图一直 0/10，也不报错）
     path = Path(path)
     mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
-            ".mp4": "video/mp4"}.get(path.suffix.lower(), "application/octet-stream")
+            ".mp4": "video/mp4", ".xls": "application/vnd.ms-excel",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}.get(path.suffix.lower(), "application/octet-stream")
     return {"name": path.name, "mimeType": mime, "buffer": path.read_bytes()}

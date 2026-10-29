@@ -569,8 +569,140 @@ def _table_state(page):
     return state
 
 
-def fill_prices(page, p, log):
+def _excel_fill(path, p):
+    """把资料里的库存、价格、规格编码按规格名填进拼多多导出的表，返回 (填了几行, 表里对不上的规格名)。
+    表的样子（2026-10-29 客户发的 客户日志/excel模板/）：第 5 行是表头「型号/尺寸、库存、拼单价(元)、单买价(元)、
+    规格编码、启用状态」，下面一行一个规格。拼多多导出的数字是文字格式，这里也按文字写"""
+    import openpyxl
+    wb = openpyxl.load_workbook(path)
+    ws = wb.worksheets[0]
+    head = next((r for r in range(1, 15) if str(ws.cell(r, 2).value or "").strip() == "库存"), None)
+    if head is None:
+        raise PublishError("导出的表里找不到「库存」那一行表头，拼多多可能改了表格样子")
+    cols = {}
+    for c in range(1, ws.max_column + 1):
+        t = str(ws.cell(head, c).value or "")
+        for k in ("库存", "拼单价", "单买价", "规格编码", "启用状态"):
+            if t.startswith(k):
+                cols[k] = c
+    if len(cols) < 5:
+        raise PublishError(f"导出的表里少了列：{'、'.join(k for k in ('库存', '拼单价', '单买价', '规格编码', '启用状态') if k not in cols)}")
+    skus = {_key(s.name): s for s in p.skus}
+    n, unknown = 0, []
+    for r in range(head + 1, ws.max_row + 1):
+        name = str(ws.cell(r, 1).value or "").strip()
+        if not name:
+            continue
+        s = skus.get(_key(name))
+        if s is None:
+            unknown.append(name)
+            continue
+        ws.cell(r, cols["库存"]).value = str(s.stock)
+        ws.cell(r, cols["拼单价"]).value = _num(s.group_price)
+        ws.cell(r, cols["单买价"]).value = _num(s.single_price)
+        if s.code:
+            ws.cell(r, cols["规格编码"]).value = s.code
+        ws.cell(r, cols["启用状态"]).value = "1"
+        n += 1
+    wb.save(path)
+    return n, unknown
+
+
+def _excel_make(path, p, spec_type):
+    """照拼多多导出的样子做一张空表（第 5 行表头，下面一行一个规格），再由 _excel_fill 填数"""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet0"
+    ws.cell(1, 1).value = ""
+    ws.cell(2, 1).value = "a. 状态为“0”（未启用）的行数更新的库存数据无法生效！"
+    ws.merge_cells("A1:Q1")
+    ws.merge_cells("A2:Q4")
+    for c, t in enumerate([spec_type, "库存", "拼单价(元)", "单买价(元)", "规格编码", "启用状态"], start=1):
+        ws.cell(5, c).value = t
+    for r, s in enumerate(p.skus, start=6):
+        for c, v in enumerate([s.name, "0", "", "", "", "1"], start=1):
+            ws.cell(r, c).value = v
+    wb.save(path)
+
+
+def fill_prices_excel(page, p, log):
+    """用页面上的「Excel批量编辑规格」一次导入所有行的库存、价格、规格编码（客户 2026-10-29 给的做法）：
+    导出当前规格数据 → 按规格名填表 → 导入规格数据 → 确认编辑。一行行点要 5 分多钟，这样半分钟左右。
+    下载由工具自己接住，存成「临时文件夹/商品ID.xlsx」，用完就删，不会和别的商品的表搞混。
+    哪一步不对就抛 PublishError，外面会退回一行行填"""
+    import tempfile
+    from pathlib import Path
+    folder = Path(tempfile.gettempdir()) / "拼多多上架"
+    folder.mkdir(exist_ok=True)
+    path = folder / f"{p.goods_id or 'goods'}_{int(time.time())}.xlsx"
+
     _close_stale_modal(page)
+    _click(page.get_by_text("Excel批量编辑规格", exact=True).first)
+    export = page.get_by_text(re.compile(r"导出当前规格数据")).first
+    export.wait_for(state="visible", timeout=10000)
+    page.wait_for_timeout(500)
+    try:
+        with page.expect_download(timeout=30000) as dl:
+            _click(export)
+        dl.value.save_as(str(path))
+    except Exception as e:
+        # 接不住下载（比如连在客户自己开的 Edge 上时），就照拼多多导出的格式自己做一张，规格按资料里的顺序
+        log(f"  导出的表没接住（{str(e).splitlines()[0][:60]}），按同样格式自己做一张")
+        _excel_make(path, p, page.locator("[id=spec] .goods-spec-row input").first.input_value() or "型号")
+    try:
+        n, unknown = _excel_fill(path, p)
+        if unknown:
+            log(f"  表里有 {len(unknown)} 行资料里没有（{'、'.join(unknown[:3])}），没填")
+        if n < len(p.skus):
+            log(f"  表里只对上 {n}/{len(p.skus)} 个规格，剩下的后面一行行补")
+
+        # 「导入规格数据」按钮旁边的上传框（只认 xls/xlsx 的那个）
+        inp = page.locator("input[type=file][accept*=xls]")
+        if not inp.count():
+            inp = page.locator("[data-testid=beast-core-modal] input[type=file]")
+        if not inp.count():
+            raise PublishError("弹窗里找不到「导入规格数据」的上传框")
+        _put_files(inp.last, [path])
+        ok = page.locator("button").filter(has_text=re.compile(r"^\s*确认编辑\s*$"))
+        try:
+            ok.first.wait_for(state="visible", timeout=20000)
+        except Exception:
+            raise PublishError("导入表格以后没出来「确认编辑」")
+        page.wait_for_timeout(500)
+        ok.first.dispatch_event("click")
+        _wait(lambda: not ok.count() or not ok.first.is_visible(), 15, "点了「确认编辑」弹窗没关")
+        page.wait_for_timeout(1000)
+        _close_stale_modal(page)
+        log(f"  Excel 导入了 {n} 行库存、价格")
+    finally:
+        try:
+            path.unlink()
+        except Exception:
+            pass
+
+
+def fill_prices(page, p, log, use_excel=True):
+    _close_stale_modal(page)
+    if use_excel:
+        t = time.time()
+        try:
+            fill_prices_excel(page, p, log)
+            log(f"  Excel 导入用了 {int(time.time() - t)} 秒")
+        except Exception as e:
+            log(f"Excel 导入没成功：{str(e).splitlines()[0]}，改成一行行填")
+            # 关掉还挂着的弹窗（Excel 批量编辑、确认编辑项），回到价格表
+            for _ in range(3):
+                x = page.locator("[data-testid=beast-core-modal-close-button]")
+                if not x.count():
+                    break
+                try:
+                    x.last.dispatch_event("click")
+                except Exception:
+                    break
+                page.wait_for_timeout(500)
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
     stocks = {s.stock for s in p.skus}
     codes = {s.code for s in p.skus}
     batch = page.locator(".batch-set").first
@@ -750,7 +882,7 @@ def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通")
         t0 = time.time()
     if "价格" in todo:
         LAST_STEP = "价格"
-        fill_prices(page, p, log)
+        fill_prices(page, p, log, use_excel=cfg.get("Excel导入价格", True))
         log(f"填价格、传预览图用了 {int(time.time() - t0)} 秒")
     if "服务" in todo:
         LAST_STEP = "服务"
