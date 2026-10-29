@@ -249,7 +249,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
     from playwright.sync_api import sync_playwright
 
     from browser import close_edge, open_edge
-    from publish import current_page, publish
+    from publish import current_page, fresh_page, publish
 
     products = []
     for p, f, errors, warns in read_all(root):
@@ -297,7 +297,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
                 if PROGRESS:
                     PROGRESS(name, i + 1, len(todo), ok_n, fail_n)
                 log(f"【{name}】第 {i + 1}/{len(todo)} 个：{p.title}（{len(p.skus)} 个规格）")
-                page = current_page(ctx, page)
+                page = fresh_page(ctx, page)
                 start = time.time()
                 try:
                     category, gid = publish(page, p, SETTINGS, log, do_submit, kind=shop.get("类型", "普通"))

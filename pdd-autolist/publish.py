@@ -240,6 +240,14 @@ def _wait_page_two(page):
         time.sleep(3)
         if not page.is_closed() and on_page_two() and found[0] == page:
             break
+    # 别的标签页里还开着的填写页（上一个商品的）关掉，这一页切到前台，不然在后台不渲染、不收上传
+    for pg in list(ctx.pages):
+        if pg is not page and not pg.is_closed() and "/goods/goods_add" in pg.url:
+            try:
+                pg.close()
+            except Exception:
+                pass
+    page.bring_to_front()
     page.on("dialog", lambda d: d.accept())
     return page
 
@@ -728,3 +736,21 @@ def current_page(ctx, page):
     """发完一个商品后拿最新的标签页（第二页可能开在新标签页里，旧的已经关了）"""
     pages = [pg for pg in ctx.pages if not pg.is_closed()]
     return pages[-1] if pages else page
+
+
+def fresh_page(ctx, page):
+    """开始发下一个商品前：留最新的一个标签页，关掉上一个商品剩下的拼多多页面（成功页、旧的填写页），切到前台。
+    连着发旗舰店时旧标签页越积越多，工具可能操作到后台的那个，后台标签页不渲染价格表、也不收上传，
+    就会出现「价格一个都没填上」「详情图没反应」"""
+    page = current_page(ctx, page)
+    for pg in list(ctx.pages):
+        if pg is not page and not pg.is_closed() and "pinduoduo.com" in pg.url:
+            try:
+                pg.close()
+            except Exception:
+                pass
+    try:
+        page.bring_to_front()
+    except Exception:
+        pass
+    return page
