@@ -462,7 +462,9 @@ def add_specs(page, p, log):
 # 价格表在自己的滚动框里（表格外面一层 overflow:auto 的 div），鼠标滚轮滚的是整个网页，滚不动它，
 # 所以直接改这个框的 scrollTop。dy 为 None 时回到最顶上；返回 [当前位置, 最大位置]
 _SCROLL_JS = """(dy) => {
-  const t = document.querySelector('table tbody');
+  // 认准带规格名的那张价格表：Excel 导入的「确认编辑项」弹窗里也有表格，取第一个表格会滚错地方
+  const title = document.querySelector('.sku-row-title');
+  const t = (title && title.closest('tbody')) || document.querySelector('table tbody');
   if (!t) return [0, 0];
   let box = t.parentElement;
   while (box && !(box.scrollHeight > box.clientHeight + 5 && /(auto|scroll)/.test(getComputedStyle(box).overflowY)))
@@ -809,6 +811,12 @@ def verify_prices(page, p, log):
     """提交前把每一行读回来和表格对一遍，对不上就不提交。
     从表头往下扫一遍整张表，一次读出看得见的所有行，比一行行去找快，页面也不会来回跳"""
     state = _table_state(page)
+    if any(_key(s.name) not in state for s in p.skus):
+        # 有行没扫到：先关掉可能挂着的弹窗，等一下再扫一遍，免得是扫的时候页面正在重画
+        _close_stale_modal(page)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(2000)
+        state.update(_table_state(page))
     bad = []
     for s in p.skus:
         st = state.get(_key(s.name))
