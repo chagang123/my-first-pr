@@ -540,7 +540,8 @@ def _close_stale_modal(page):
 _ROWS_JS = """() => [...document.querySelectorAll('table tbody tr')].map(r => {
   const t = r.querySelector('.sku-row-title');
   const ins = [...r.querySelectorAll('input:not([type=file])')].map(i => i.value);
-  const img = !!(r.children[4] && r.children[4].querySelector('img, [class*=imgContainer]'));
+  const c = r.children[4];
+  const img = !!(c && c.querySelector('img, [class*=imgContainer]') && !/失败|重新上传|不符合|违规/.test(c.innerText));
   return t ? [t.innerText.trim(), ins[0] || '', ins[1] || '', ins[2] || '', img] : null;
 }).filter(Boolean)"""
 
@@ -678,10 +679,34 @@ def fill_prices_excel(page, p, log):
             pass
 
 
+def _clean_image(path):
+    """把图重新存成最普通的 JPG（RGB、去掉颜色配置和拍摄信息、最长边不超过 1200）。
+    2026-10-29 客户有一张白底 SKU 图怎么都传不上，补传那一轮换成这张"""
+    import tempfile
+    from pathlib import Path
+    from PIL import Image
+    out = Path(tempfile.gettempdir()) / "拼多多上架" / "图"
+    out.mkdir(parents=True, exist_ok=True)
+    out = out / (Path(path).stem + ".jpg")
+    with Image.open(path) as im:
+        im = im.convert("RGBA") if im.mode in ("P", "LA") else im
+        if im.mode == "RGBA":           # 透明底垫成白底
+            bg = Image.new("RGB", im.size, "white")
+            bg.paste(im, mask=im.split()[3])
+            im = bg
+        im = im.convert("RGB")
+        im.thumbnail((1200, 1200))
+        im.save(out, "JPEG", quality=90)
+    return out
+
+
 def _upload_sku_images(page, p, log):
-    """按顺序一张张传预览图，没收的传完再补一遍。
+    """按顺序一张张传预览图，没收的传完再补一遍（补传时先把图转成普通 JPG）。
     传图时拼多多会重新画价格表，手上的那一行会失效（Element is not attached to the DOM），这时重新找这一行再传"""
-    has_img = lambda cell: cell.locator("img, [class*=imgContainer]").count() > 0
+    def has_img(cell):
+        # 传失败的格子里也有图框，要看格子里有没有「失败」之类的字
+        return cell.locator("img, [class*=imgContainer]").count() > 0 and not re.search(
+            r"失败|重新上传|不符合|违规", cell.inner_text())
     for rnd in range(2):
         state = _table_state(page)
         need = [s for s in p.skus if s.image is not None and not (state.get(_key(s.name)) or {}).get("img")]
@@ -699,8 +724,20 @@ def _upload_sku_images(page, p, log):
                         break
                     f = cell.locator("input[type=file]")
                     if not f.count():
-                        break
-                    _put_files(f.first, [s.image])
+                        # 传失败的格子上传框可能藏起来了，先删掉失败的图
+                        x = cell.locator("[class*=delete], [class*=Delete], [class*=close], [class*=remove]")
+                        if not x.count():
+                            break
+                        x.first.dispatch_event("click")
+                        page.wait_for_timeout(500)
+                        continue
+                    img = s.image
+                    if rnd:
+                        try:
+                            img = _clean_image(s.image)
+                        except Exception as e:
+                            log(f"  {s.name} 的图转格式没成功：{e}")
+                    _put_files(f.first, [img])
                     _wait_fast(page, lambda: has_img(_find_row(page, s.name, tries=3).locator("td").nth(4)), 10, "")
                     ok = True
                     break
@@ -838,6 +875,20 @@ def verify_prices(page, p, log):
     log(f"核对通过：{len(p.skus)} 行价格、库存、图片都对")
 
 
+# 页面上所有看得见的红字报错；在价格表里的带上是哪个规格，日志里能看出是哪一行出的问题
+_ERRORS_JS = """() => {
+  const out = [];
+  for (const e of document.querySelectorAll('[class*=rror], [class*=Error], [data-testid=beast-core-form-item-error]')) {
+    const t = (e.innerText || '').trim();
+    if (!t || t.length > 80 || !e.offsetParent || e.querySelector('[class*=rror], [class*=Error]')) continue;
+    const tr = e.closest('tr'), title = tr && tr.querySelector('.sku-row-title');
+    const m = (title ? title.innerText.trim() + '：' : '') + t;
+    if (!out.includes(m)) out.push(m);
+  }
+  return out;
+}"""
+
+
 def submit(page, log):
     _click(page.locator("#submit_button"))
     ctx = page.context
@@ -863,8 +914,7 @@ def submit(page, log):
             ok.last.dispatch_event("click")
         err = page.locator("text=/个错误项未处理/")
         if err.count() and err.first.is_visible():
-            msgs = page.locator("[class*=Form_itemError], [data-testid=beast-core-form-item-error]").all_inner_texts()
-            msgs = [m.strip() for m in msgs if m.strip()]
+            msgs = [m.strip() for m in page.evaluate(_ERRORS_JS) if m.strip()]
             raise PublishError("拼多多提示有错误没处理：" + ("；".join(msgs[:5]) or err.first.inner_text()))
         page.wait_for_timeout(1000)
     raise PublishError("点了提交并上架，90 秒没看到成功页面")
