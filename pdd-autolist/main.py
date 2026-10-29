@@ -249,6 +249,7 @@ def cmd_upload(root: Path, shops, do_submit=True):
     from playwright.sync_api import sync_playwright
 
     from browser import close_edge, open_edge
+    import publish as publish_mod
     from publish import current_page, fresh_page, publish
 
     products = []
@@ -300,7 +301,17 @@ def cmd_upload(root: Path, shops, do_submit=True):
                 page = fresh_page(ctx, page)
                 start = time.time()
                 try:
-                    category, gid = publish(page, p, SETTINGS, log, do_submit, kind=shop.get("类型", "普通"))
+                    # 还没点提交就出错（传图没收、找不到行之类，多半是偶发），从头再来一次；点了提交的不重来，免得上重复
+                    for attempt in (1, 2):
+                        try:
+                            category, gid = publish(page, p, SETTINGS, log, do_submit, kind=shop.get("类型", "普通"))
+                            break
+                        except Exception as e:
+                            if attempt == 2 or STOP.is_set() or publish_mod.LAST_STEP == "提交":
+                                raise
+                            log(f"出错：{str(e).split(chr(10) + 'Call log')[0].strip()}，从头再试一次")
+                            page = fresh_page(ctx, page)
+                            STOP.wait(10)
                     mins = (time.time() - start) / 60
                     if do_submit:
                         record.setdefault(name, []).append(

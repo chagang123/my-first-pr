@@ -481,7 +481,7 @@ def _scroll_table_top(page):
     _scroll_table(page, None)
 
 
-def _find_row(page, name, tries=60):
+def _find_row(page, name, tries=200):
     """规格表只渲染看得见的行，按规格名找，找不到就往下滚一点再找；滚到底还没有就从头再来一遍。
     行是按顺序填的，下一行一般就在眼前或下面一点，所以从当前位置往下找，不回表头
     （以前每行都先回表头再往下滚，200 多个规格时越往后越慢，一个商品要 20 多分钟）"""
@@ -536,7 +536,7 @@ def _table_state(page):
         return state
     _scroll_table_top(page)
     same = 0
-    for _ in range(80):
+    for _ in range(400):        # 300 多个规格时表格有三万多像素高，一次滚 400，到底就停
         before = len(state)
         for name, stock, gp, sp, img in page.evaluate(_ROWS_JS):
             state[name] = {"stock": stock, "gp": gp, "sp": sp, "img": img}
@@ -729,6 +729,7 @@ def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通")
     verify_prices(page, p, log)
     if not do_submit:
         return category, ""
+    LAST_STEP = "提交"
     return category, submit(page, log)
 
 
