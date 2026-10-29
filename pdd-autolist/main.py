@@ -301,17 +301,30 @@ def cmd_upload(root: Path, shops, do_submit=True):
                 page = fresh_page(ctx, page)
                 start = time.time()
                 try:
-                    # 还没点提交就出错（传图没收、找不到行之类，多半是偶发），从头再来一次；点了提交的不重来，免得上重复
-                    for attempt in (1, 2):
+                    # 还没点提交就出错（传图没收、找不到行之类）：还在填写页上就从出错的那一步接着做，
+                    # 已经做好的规格、价格、图片会跳过；接着做两次还不行再从头来一次。点了提交的不重来，免得上重复
+                    step, tries = "第一页", 0
+                    while True:
                         try:
-                            category, gid = publish(page, p, SETTINGS, log, do_submit, kind=shop.get("类型", "普通"))
+                            category, gid = publish(page, p, SETTINGS, log, do_submit, start=step,
+                                                    kind=shop.get("类型", "普通"))
                             break
                         except Exception as e:
-                            if attempt == 2 or STOP.is_set() or publish_mod.LAST_STEP == "提交":
+                            tries += 1
+                            failed_at = publish_mod.LAST_STEP
+                            if tries > 3 or STOP.is_set() or failed_at == "提交":
                                 raise
-                            log(f"出错：{str(e).split(chr(10) + 'Call log')[0].strip()}，从头再试一次")
-                            page = fresh_page(ctx, page)
-                            STOP.wait(10)
+                            msg = str(e).split("\nCall log")[0].strip()
+                            page = current_page(ctx, page)
+                            if tries <= 2 and failed_at != "第一页" and "/goods/goods_add" in page.url:
+                                step = "价格" if failed_at == "核对" else failed_at   # 核对没过就回去把不对的格子重填
+                                log(f"出错：{msg}，从「{step}」这一步接着做")
+                                page.bring_to_front()
+                            else:
+                                step = "第一页"
+                                log(f"出错：{msg}，从头再来一次")
+                                page = fresh_page(ctx, page)
+                            STOP.wait(5)
                     mins = (time.time() - start) / 60
                     if do_submit:
                         record.setdefault(name, []).append(

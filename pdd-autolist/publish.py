@@ -371,32 +371,34 @@ def _confirm_modal(page):
     btn.last.dispatch_event("click")
 
 
-_ADD_SPECS_JS = r"""async ({names, timeout}) => {
-  // 在规格值的最后一个空框里填名字、按回车，等下面多出一个新的空框再填下一个；返回填进去了几个
+_DELETE_VALUE_JS = r"""(name) => {
+  // 规格值框旁边的「删除」：从这个框往外找，找到只包着一个「删除」的那层，点它
   const row = document.querySelector('[id=spec] .goods-spec-row');
-  if (!row) return 0;
-  const boxes = () => [...row.querySelectorAll('input[placeholder*="请输入规格名称"]')];
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  const enter = type => new KeyboardEvent(type, {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true});
-  let done = 0;
-  for (const name of names) {
-    const list = boxes();
-    const box = list[list.length - 1];
-    if (!box || box.value) break;
-    box.focus();
-    setValue.call(box, name);
-    box.dispatchEvent(new Event('input', {bubbles: true}));
-    box.dispatchEvent(enter('keydown'));
-    box.dispatchEvent(enter('keypress'));
-    box.dispatchEvent(enter('keyup'));
-    const end = Date.now() + timeout;
-    while (Date.now() < end && boxes().length <= list.length) await sleep(30);
-    if (boxes().length <= list.length) break;
-    done++;
-  }
-  return done;
+  const box = row && [...row.querySelectorAll('input[placeholder*="请输入规格名称"]')].find(i => i.value.trim() === name);
+  if (!box) return false;
+  const dels = el => [...el.querySelectorAll('*')].filter(e => e.children.length === 0 && e.textContent.trim() === '删除');
+  let el = box.parentElement;
+  while (el && el !== row && dels(el).length === 0) el = el.parentElement;
+  if (!el || el === row || dels(el).length !== 1) return false;
+  dels(el)[0].click();
+  return true;
 }"""
+
+
+def _add_values(page, names, values, log):
+    """规格值一个个填：填进最后一个空框按回车，等下面多出新的空框。
+    不能填太快：拼多多每个规格值都要去后台登记，一秒填十几个会弹「数据错误，请刷新页面」，
+    有几个规格就没有对应的价格行（2026-10-29 客户 298 个规格时第 51 行找不到）"""
+    for i, name in enumerate(values):
+        before = names.count()
+        box = names.last
+        box.fill(name)
+        box.press("Enter")
+        # 填了一个，下面会自动多出一个空的输入框
+        _wait_fast(page, lambda: names.count() > before or names.last.input_value() == "", 10, f"规格「{name}」没加上")
+        if (i + 1) % 20 == 0:
+            log(f"  已加 {i + 1}/{len(values)} 个")
+        time.sleep(random.uniform(0.1, 0.25))
 
 
 def add_specs(page, p, log):
@@ -434,27 +436,27 @@ def add_specs(page, p, log):
     have = {v.strip() for v in names.evaluate_all("els => els.map(e => e.value)") if v.strip()}
     todo = [s for s in p.skus if s.name not in have]
     log(f"添加 {len(todo)} 个规格" + (f"（页面上已经有 {len(have)} 个）" if have else ""))
-    # 先用页面里的脚本一次填 20 个（省掉每个规格来回好几趟的通信）；脚本填的拼多多不认，就改回下面一个个填
-    i = 0
-    while i < len(todo):
-        chunk = [s.name for s in todo[i:i + 20]]
-        n = page.evaluate(_ADD_SPECS_JS, {"names": chunk, "timeout": 5000})
-        i += n
-        if n:
-            log(f"  已加 {i}/{len(todo)} 个")
-        if n < len(chunk):
+    _add_values(page, names, [s.name for s in todo], log)
+
+    # 加完核对：每个规格在价格表里都要有一行。拼多多没登记上的规格（填了值但没出价格行）删掉重加一次
+    for k in range(2):
+        state = _table_state(page)
+        missing = [s.name for s in p.skus if s.name not in state]
+        if not missing:
             break
-    if i < len(todo):
-        log("快速添加没反应，改回一个个填" if i == 0 else f"快速添加停在第 {i} 个，后面一个个填")
-    for i, s in enumerate(todo[i:], start=i):
-        before = names.count()
-        box = names.last
-        box.fill(s.name)
-        box.press("Enter")
-        # 填了一个，下面会自动多出一个空的输入框
-        _wait_fast(page, lambda: names.count() > before or names.last.input_value() == "", 10, f"规格「{s.name}」没加上")
-        if (i + 1) % 20 == 0:
-            log(f"  已加 {i + 1}/{len(todo)} 个")
+        if k == 1:
+            raise PublishError(f"价格表里少了 {len(missing)} 个规格，删掉重加也没出来：" + "、".join(missing[:10]))
+        log(f"价格表里少了 {len(missing)} 个规格（{'、'.join(missing[:5])}），删掉重加")
+        for name in missing:
+            if page.evaluate(_DELETE_VALUE_JS, name):
+                page.wait_for_timeout(800)
+                ok = page.locator("[data-testid=beast-core-modal-ok-button]")
+                if ok.count():
+                    ok.last.dispatch_event("click")
+                    page.wait_for_timeout(800)
+        have = {v.strip() for v in names.evaluate_all("els => els.map(e => e.value)") if v.strip()}
+        _add_values(page, names, [n for n in missing if n not in have], log)
+    log(f"核对规格：价格表里 {len(p.skus)} 行都有")
 
 
 # 价格表在自己的滚动框里（表格外面一层 overflow:auto 的 div），鼠标滚轮滚的是整个网页，滚不动它，
@@ -565,48 +567,56 @@ def fill_prices(page, p, log):
     else:
         per_row_stock = per_row_code = True
 
-    # 先扫一遍整张表，已经填对、有图的行直接跳过（断线重连后不用一行行重新核对）
+    # 分两遍：先把每行的库存、价格填完，再按顺序传预览图，最后没传上的再补一次。
+    # 接着跑的时候先扫一遍整张表，已经填对的格子、已经有图的行都跳过
     state = _table_state(page)
 
-    def done(s):
+    def price_done(s):
         st = state.get(s.name)
-        if not st:
-            return False
         try:
-            ok = (abs(float(st["gp"]) - s.group_price) < 0.001 and abs(float(st["sp"]) - s.single_price) < 0.001
-                  and float(st["stock"]) == s.stock)
+            return bool(st) and (abs(float(st["gp"]) - s.group_price) < 0.001
+                                 and abs(float(st["sp"]) - s.single_price) < 0.001 and float(st["stock"]) == s.stock)
         except ValueError:
             return False
-        return ok and (s.image is None or st["img"])
-    todo = [s for s in p.skus if not done(s)]
-    if len(todo) < len(p.skus):
-        log(f"  {len(p.skus) - len(todo)} 行已经填好，跳过，还剩 {len(todo)} 行")
-
+    todo = [s for s in p.skus if not price_done(s)]
+    log(f"填价格 {len(todo)} 行" + (f"（{len(p.skus) - len(todo)} 行已经填好）" if len(todo) < len(p.skus) else ""))
     for i, s in enumerate(todo):
-        row = _find_row(page, s.name)
-        cells = row.locator("td")
-        # 接着跑的时候已经填对的格子、已经有图的行就跳过，不重复传图
+        cells = _find_row(page, s.name).locator("td")
         if per_row_stock:
             _fill_if_diff(cells.nth(1).locator("input"), str(s.stock))
         _fill_if_diff(cells.nth(2).locator("input"), _num(s.group_price))
         _fill_if_diff(cells.nth(3).locator("input"), _num(s.single_price))
         if per_row_code and s.code:
             _fill_if_diff(cells.nth(5).locator("input"), s.code)
-        if s.image is not None and not cells.nth(4).locator("img, [class*=imgContainer]").count():
-            f = cells.nth(4).locator("input[type=file]")
-            if f.count():
-                cell = cells.nth(4)
-                for k in range(3):
-                    _put_files(f.first, [s.image])
-                    try:
-                        _wait_fast(page, lambda: cell.locator("img, [class*=imgContainer]").count(), 8, "")
-                        break
-                    except PublishError:
-                        pass
-                    if k < 2:
-                        log(f"  「{s.name}」的预览图没反应，再放一次")
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 20 == 0:
             log(f"  已填 {i + 1}/{len(todo)} 行价格")
+
+    has_img = lambda cell: cell.locator("img, [class*=imgContainer]").count() > 0
+    for rnd in range(2):
+        state = _table_state(page)
+        need = [s for s in p.skus if s.image is not None and not (state.get(s.name) or {}).get("img")]
+        if not need:
+            break
+        log(f"{'补传' if rnd else '传'}预览图 {len(need)} 张")
+        failed = []
+        for i, s in enumerate(need):
+            cell = _find_row(page, s.name).locator("td").nth(4)
+            if has_img(cell):
+                continue
+            f = cell.locator("input[type=file]")
+            if not f.count():
+                failed.append(s.name)
+                continue
+            _put_files(f.first, [s.image])
+            try:
+                _wait_fast(page, lambda: has_img(cell), 10, "")
+            except PublishError:
+                failed.append(s.name)
+            if (i + 1) % 20 == 0:
+                log(f"  已传 {i + 1}/{len(need)} 张")
+        if failed:
+            log(f"  {len(failed)} 张没收（{'、'.join(failed[:5])}）" + ("，最后核对会报出来" if rnd else "，传完再补一遍"))
+            page.wait_for_timeout(3000)
 
     ref = max(s.single_price for s in p.skus) + 1
     _fill(page.get_by_placeholder("应大于商品最大单买价"), _num(ref))
@@ -686,7 +696,8 @@ def submit(page, log):
 
 
 STEPS = ["第一页", "属性", "详情图", "规格", "价格", "服务", "核对"]
-LAST_STEP = "第一页"   # 正在做哪一步，断线重连时从这里接着跑
+LAST_STEP = "第一页"   # 正在做哪一步，断线重连、出错重试时从这里接着跑
+LAST_CATEGORY = ""     # 这个商品选的类目，接着跑时结果表里还写得上
 
 
 def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通"):
@@ -694,9 +705,9 @@ def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通")
     start 是从哪一步开始：调试时卡住了，改完代码在当前页面上接着跑，不用从头再来"""
     if start not in STEPS:
         raise PublishError(f"没有「{start}」这一步，可以从这些步开始：{'、'.join(STEPS)}")
-    global LAST_STEP
+    global LAST_STEP, LAST_CATEGORY
     todo = STEPS[STEPS.index(start):]
-    category = "（接着跑，没重选）"
+    category = LAST_CATEGORY or "（接着跑，没重选）"
     flagship = kind == "旗舰"
     if "第一页" in todo:
         LAST_STEP = "第一页"
@@ -705,6 +716,7 @@ def publish(page, p, cfg, log, do_submit=True, start="第一页", kind="普通")
             flagship_mains_title(page, p, cfg, log)
         else:
             category, page = page_one(page, p, cfg, log)
+        LAST_CATEGORY = category
     wait_captcha(page, log)
     if "属性" in todo and not flagship:     # 旗舰店的品牌、属性拼多多自动带出，不用填
         LAST_STEP = "属性"
