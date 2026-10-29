@@ -628,8 +628,8 @@ def _excel_make(path, p, spec_type):
 
 def fill_prices_excel(page, p, log):
     """用页面上的「Excel批量编辑规格」一次导入所有行的库存、价格、规格编码（客户 2026-10-29 给的做法）：
-    导出当前规格数据 → 按规格名填表 → 导入规格数据 → 确认编辑。一行行点要 5 分多钟，这样半分钟左右。
-    下载由工具自己接住，存成「临时文件夹/商品ID.xlsx」，用完就删，不会和别的商品的表搞混。
+    照导出的格式自己做表、按规格名填 → 导入规格数据 → 确认编辑。一行行点要 5 分多钟，这样十几秒。
+    表存成「临时文件夹/商品ID_时间.xlsx」，用完就删，不会和别的商品的表搞混。
     哪一步不对就抛 PublishError，外面会退回一行行填"""
     import tempfile
     from pathlib import Path
@@ -638,18 +638,12 @@ def fill_prices_excel(page, p, log):
     path = folder / f"{p.goods_id or 'goods'}_{int(time.time())}.xlsx"
 
     _close_stale_modal(page)
+    # 不点「导出当前规格数据」：连在客户自己开的 Edge 上时下载接不住（白等 30 秒），还会在客户的下载文件夹里留一堆表。
+    # 拼多多认自己照格式做的表（2026-10-29 客户实测 298 行导入成功），所以直接做表、导入
+    _excel_make(path, p, page.locator("[id=spec] .goods-spec-row input").first.input_value() or "型号")
     _click(page.get_by_text("Excel批量编辑规格", exact=True).first)
-    export = page.get_by_text(re.compile(r"导出当前规格数据")).first
-    export.wait_for(state="visible", timeout=10000)
+    page.get_by_text(re.compile(r"导入规格数据")).first.wait_for(state="visible", timeout=10000)
     page.wait_for_timeout(500)
-    try:
-        with page.expect_download(timeout=30000) as dl:
-            _click(export)
-        dl.value.save_as(str(path))
-    except Exception as e:
-        # 接不住下载（比如连在客户自己开的 Edge 上时），就照拼多多导出的格式自己做一张，规格按资料里的顺序
-        log(f"  导出的表没接住（{str(e).splitlines()[0][:60]}），按同样格式自己做一张")
-        _excel_make(path, p, page.locator("[id=spec] .goods-spec-row input").first.input_value() or "型号")
     try:
         n, unknown = _excel_fill(path, p)
         if unknown:
@@ -682,8 +676,63 @@ def fill_prices_excel(page, p, log):
             pass
 
 
+def _upload_sku_images(page, p, log):
+    """按顺序一张张传预览图，没收的传完再补一遍。
+    传图时拼多多会重新画价格表，手上的那一行会失效（Element is not attached to the DOM），这时重新找这一行再传"""
+    has_img = lambda cell: cell.locator("img, [class*=imgContainer]").count() > 0
+    for rnd in range(2):
+        state = _table_state(page)
+        need = [s for s in p.skus if s.image is not None and not (state.get(_key(s.name)) or {}).get("img")]
+        if not need:
+            break
+        log(f"{'补传' if rnd else '传'}预览图 {len(need)} 张")
+        failed = []
+        for i, s in enumerate(need):
+            ok = False
+            for k in range(3):
+                try:
+                    cell = _find_row(page, s.name).locator("td").nth(4)
+                    if has_img(cell):
+                        ok = True
+                        break
+                    f = cell.locator("input[type=file]")
+                    if not f.count():
+                        break
+                    _put_files(f.first, [s.image])
+                    _wait_fast(page, lambda: has_img(_find_row(page, s.name, tries=3).locator("td").nth(4)), 10, "")
+                    ok = True
+                    break
+                except Exception:
+                    page.wait_for_timeout(500)
+            if not ok:
+                failed.append(s.name)
+            if (i + 1) % 20 == 0:
+                log(f"  已传 {i + 1}/{len(need)} 张")
+        if failed:
+            log(f"  {len(failed)} 张没收（{'、'.join(failed[:5])}）" + ("，最后核对会报出来" if rnd else "，传完再补一遍"))
+            page.wait_for_timeout(3000)
+
+
 def fill_prices(page, p, log, use_excel=True):
+    """顺序：批量设库存 → 传预览图 → Excel 导入库存价格 → 扫一遍表，没进去的格子一行行补。
+    先传图后导价格：2026-10-29 客户实测，导入价格以后再传图，价格会被冲掉只剩 20 行"""
     _close_stale_modal(page)
+    stocks = {s.stock for s in p.skus}
+    codes = {s.code for s in p.skus}
+    batch = page.locator(".batch-set").first
+    if len(stocks) == 1 and batch.count():
+        # 库存、规格编码都一样就用表格上方的「批量设置」一次填完
+        page.get_by_placeholder("库存", exact=True).fill(str(stocks.pop()))
+        if len(codes) == 1 and next(iter(codes)):
+            page.get_by_placeholder("规格编码", exact=True).fill(next(iter(codes)))
+        _click(page.get_by_role("button", name="批量设置"))
+        _pause()
+        per_row_stock = per_row_code = False
+    else:
+        per_row_stock = per_row_code = True
+
+    _upload_sku_images(page, p, log)
+
     if use_excel:
         t = time.time()
         try:
@@ -703,22 +752,8 @@ def fill_prices(page, p, log, use_excel=True):
                 page.wait_for_timeout(500)
             page.keyboard.press("Escape")
             page.wait_for_timeout(500)
-    stocks = {s.stock for s in p.skus}
-    codes = {s.code for s in p.skus}
-    batch = page.locator(".batch-set").first
-    if len(stocks) == 1 and batch.count():
-        # 库存、规格编码都一样就用表格上方的「批量设置」一次填完
-        page.get_by_placeholder("库存", exact=True).fill(str(stocks.pop()))
-        if len(codes) == 1 and next(iter(codes)):
-            page.get_by_placeholder("规格编码", exact=True).fill(next(iter(codes)))
-        _click(page.get_by_role("button", name="批量设置"))
-        _pause()
-        per_row_stock = per_row_code = False
-    else:
-        per_row_stock = per_row_code = True
 
-    # 分两遍：先把每行的库存、价格填完，再按顺序传预览图，最后没传上的再补一次。
-    # 接着跑的时候先扫一遍整张表，已经填对的格子、已经有图的行都跳过
+    # 扫一遍整张表，已经填对的行跳过，没进去的一行行补（接着跑的时候也一样）
     state = _table_state(page)
 
     def price_done(s):
@@ -731,42 +766,24 @@ def fill_prices(page, p, log, use_excel=True):
     todo = [s for s in p.skus if not price_done(s)]
     log(f"填价格 {len(todo)} 行" + (f"（{len(p.skus) - len(todo)} 行已经填好）" if len(todo) < len(p.skus) else ""))
     for i, s in enumerate(todo):
-        cells = _find_row(page, s.name).locator("td")
-        if per_row_stock:
-            _fill_if_diff(cells.nth(1).locator("input"), str(s.stock))
-        _fill_if_diff(cells.nth(2).locator("input"), _num(s.group_price))
-        _fill_if_diff(cells.nth(3).locator("input"), _num(s.single_price))
-        if per_row_code and s.code:
-            _fill_if_diff(cells.nth(5).locator("input"), s.code)
+        for k in range(3):      # 表格重画时手上的行会失效，重新找一次
+            try:
+                cells = _find_row(page, s.name).locator("td")
+                if per_row_stock:
+                    _fill_if_diff(cells.nth(1).locator("input"), str(s.stock))
+                _fill_if_diff(cells.nth(2).locator("input"), _num(s.group_price))
+                _fill_if_diff(cells.nth(3).locator("input"), _num(s.single_price))
+                if per_row_code and s.code:
+                    _fill_if_diff(cells.nth(5).locator("input"), s.code)
+                break
+            except PublishError:
+                raise
+            except Exception:
+                if k == 2:
+                    raise
+                page.wait_for_timeout(500)
         if (i + 1) % 20 == 0:
             log(f"  已填 {i + 1}/{len(todo)} 行价格")
-
-    has_img = lambda cell: cell.locator("img, [class*=imgContainer]").count() > 0
-    for rnd in range(2):
-        state = _table_state(page)
-        need = [s for s in p.skus if s.image is not None and not (state.get(_key(s.name)) or {}).get("img")]
-        if not need:
-            break
-        log(f"{'补传' if rnd else '传'}预览图 {len(need)} 张")
-        failed = []
-        for i, s in enumerate(need):
-            cell = _find_row(page, s.name).locator("td").nth(4)
-            if has_img(cell):
-                continue
-            f = cell.locator("input[type=file]")
-            if not f.count():
-                failed.append(s.name)
-                continue
-            _put_files(f.first, [s.image])
-            try:
-                _wait_fast(page, lambda: has_img(cell), 10, "")
-            except PublishError:
-                failed.append(s.name)
-            if (i + 1) % 20 == 0:
-                log(f"  已传 {i + 1}/{len(need)} 张")
-        if failed:
-            log(f"  {len(failed)} 张没收（{'、'.join(failed[:5])}）" + ("，最后核对会报出来" if rnd else "，传完再补一遍"))
-            page.wait_for_timeout(3000)
 
     ref = max(s.single_price for s in p.skus) + 1
     _fill(page.get_by_placeholder("应大于商品最大单买价"), _num(ref))
