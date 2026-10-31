@@ -7,13 +7,31 @@ var H = 700;                 // 逻辑高度随屏幕比例调整，见 resizeGa
 var BASE = 10;               // 底座边长（世界单位）
 var LAYER = 1.2;             // 每层厚度
 var RANGE = 13;              // 方块来回滑动的距离
-var PERFECT = 0.3;           // 误差在这个范围内算完美对齐
-var GROW_AFTER = 3;          // 连续完美几次后开始变宽
-var GROW = 0.6;
+var GROW_AFTER = 4;          // 连续完美几次后开始变宽
+var GROW = 0.5;
 var COS30 = 0.866, SIN30 = 0.5;
-var HUES = [200, 330, 28, 160, 265];
+// 每局随机一个底色，往上叠时在它附近来回摆，不会摆到紫色去
+var HUES = [8, 28, 168, 195, 352];
+function hueAt(hue0, n) { return hue0 + 22 * Math.sin(n * 0.22); }
 
-function speedFor(score) { return Math.min(9 + score * 0.18, 22); }
+var LEVELS = 20;
+
+// 难度用模拟玩家（按点击时机误差）测过：无限模式一般人 25~35 层，闯关前 5 关基本能过，10 关以后要有手感
+// jitterFrom：从第几层起每块速度随机快慢；flipFrom：从第几层起方块可能从另一边滑出来
+function endlessCfg() {
+  return { target: 0, perfect: 0.22, jitterFrom: 12, flipFrom: 25,
+    speed: function (s) { return Math.min(11 + s * 0.28, 27); } };
+}
+
+function levelCfg(n) {
+  return {
+    target: Math.min(9 + 2 * n, 19 + n),
+    perfect: Math.max(0.18, 0.3 - 0.005 * n),
+    jitterFrom: n >= 4 ? Math.max(3, 12 - n) : 999,
+    flipFrom: n >= 7 ? Math.max(4, 20 - n) : 999,
+    speed: function (s) { return Math.min(9.5 + 0.35 * n + s * 0.2, 27); }
+  };
+}
 
 // ============ 小红书端能力 ============
 var xhs = window.xhs || null;
@@ -82,12 +100,15 @@ function mergeSave(local, remote) {
   if (!remote) return local;
   return {
     best: Math.max(local.best | 0, remote.best | 0),
-    muted: local.muted !== undefined ? !!local.muted : !!remote.muted
+    level: Math.max(local.level | 0, remote.level | 0),
+    cleared: Math.max(local.cleared | 0, remote.cleared | 0),
+    muted: local.muted !== undefined ? !!local.muted : !!remote.muted,
+    mode: local.mode || remote.mode
   };
 }
 
 async function writeCloud(obj) {
-  var content = { best: obj.best, muted: !!obj.muted };
+  var content = { best: obj.best, level: obj.level, cleared: obj.cleared, muted: !!obj.muted, mode: obj.mode };
   try {
     var r = cloud.id
       ? await miniTool.updateCloudStorage({ collection: CLOUD_COLL, items: [{ id: cloud.id, content: content }] })
@@ -142,7 +163,8 @@ function vibrate(type) {
 
 // ============ 音效 ============
 var audio = null;
-var saveState = { best: 0, muted: false };
+// best：无限模式最高层数（上排行榜）；level：闯关已解锁到第几关；cleared：最高通过第几关
+var saveState = { best: 0, level: 1, cleared: 0, muted: false, mode: 'level' };
 
 function initAudio() {
   if (audio) {
@@ -152,33 +174,197 @@ function initAudio() {
   try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
 }
 
-function beep(freq, dur, type, vol, freqEnd) {
+function beep(freq, dur, type, vol, freqEnd, delay) {
   if (!audio || saveState.muted) return;
-  var t = audio.currentTime;
-  var o = audio.createOscillator();
-  var g = audio.createGain();
-  o.type = type || 'sine';
-  o.frequency.setValueAtTime(freq, t);
-  if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
-  g.gain.setValueAtTime(vol || 0.15, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  o.connect(g);
-  g.connect(audio.destination);
-  o.start(t);
-  o.stop(t + dur);
+  var t = audio.currentTime + (delay || 0);
+  toneAt(sfxOut(), t, freq, freqEnd, dur, vol || 0.15, type || 'sine');
 }
 
-// 连续完美时音高按五声音阶往上走
-var DING = [523, 587, 659, 784, 880, 1046, 1175, 1318, 1568, 1760];
+// 音效统一走一路总音量，再进 destination
+var sfxBus = null;
+function sfxOut() {
+  if (!sfxBus) { sfxBus = audio.createGain(); sfxBus.gain.value = 0.9; sfxBus.connect(audio.destination); }
+  return sfxBus;
+}
+
+function toneAt(dest, t, freq, freqEnd, dur, vol, type) {
+  var o = audio.createOscillator();
+  var g = audio.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(vol, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g);
+  g.connect(dest);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+
+var noiseBuf = null;
+function getNoise() {
+  if (!noiseBuf) {
+    noiseBuf = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
+}
+
+// kind：lowpass / highpass / bandpass
+function noiseAt(dest, t, dur, vol, kind, freq, freqEnd) {
+  var src = audio.createBufferSource();
+  src.buffer = getNoise();
+  var f = audio.createBiquadFilter();
+  f.type = kind;
+  f.frequency.setValueAtTime(freq, t);
+  if (freqEnd) f.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+  var g = audio.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(dest);
+  src.start(t, Math.random() * 0.5);
+  src.stop(t + dur + 0.02);
+}
+
+// C 大调五声音阶，和背景音乐同一个调，连续完美时一级一级往上走
+var DING = [523.3, 587.3, 659.3, 784, 880, 1046.5, 1174.7, 1318.5, 1568, 1760];
 var sfx = {
-  place: function () { beep(220, 0.08, 'triangle', 0.14, 140); },
-  perfect: function (combo) {
-    var f = DING[Math.min(combo - 1, DING.length - 1)];
-    beep(f, 0.22, 'sine', 0.16);
-    setTimeout(function () { beep(f * 2, 0.16, 'sine', 0.06); }, 30);
+  // 木块落下的一声闷响，越往上音稍微高一点
+  place: function (h) {
+    if (!audio || saveState.muted) return;
+    var t = audio.currentTime, k = Math.min(1, (h || 0) / 40);
+    toneAt(sfxOut(), t, 190 + k * 60, 80, 0.14, 0.22, 'triangle');
+    noiseAt(sfxOut(), t, 0.07, 0.16, 'bandpass', 1100 + k * 400);
   },
-  fail: function () { beep(330, 0.4, 'sine', 0.14, 110); }
+  // 多出来的一截被切掉
+  cut: function () {
+    if (!audio || saveState.muted) return;
+    noiseAt(sfxOut(), audio.currentTime + 0.02, 0.22, 0.09, 'highpass', 6000, 1800);
+  },
+  perfect: function (combo) {
+    if (!audio || saveState.muted) return;
+    var t = audio.currentTime;
+    var f = DING[Math.min(combo - 1, DING.length - 1)];
+    toneAt(sfxOut(), t, 160, 90, 0.1, 0.12, 'triangle');
+    toneAt(sfxOut(), t, f, 0, 0.5, 0.14, 'sine');
+    toneAt(sfxOut(), t + 0.03, f * 2, 0, 0.3, 0.05, 'sine');
+    toneAt(sfxOut(), t + 0.03, f * 1.5, 0, 0.35, 0.035, 'triangle');
+  },
+  // 方块开始变宽
+  grow: function () {
+    if (!audio || saveState.muted) return;
+    var t = audio.currentTime + 0.12;
+    [1046.5, 1318.5, 1568, 2093].forEach(function (f, i) { toneAt(sfxOut(), t + i * 0.045, f, 0, 0.22, 0.04, 'sine'); });
+  },
+  fail: function () {
+    if (!audio || saveState.muted) return;
+    var t = audio.currentTime;
+    toneAt(sfxOut(), t, 330, 70, 0.7, 0.12, 'sawtooth');
+    toneAt(sfxOut(), t, 220, 55, 0.8, 0.14, 'triangle');
+    noiseAt(sfxOut(), t + 0.05, 0.6, 0.22, 'lowpass', 900, 120);
+  },
+  clear: function () {
+    if (!audio || saveState.muted) return;
+    var t = audio.currentTime;
+    [523.3, 659.3, 784, 1046.5].forEach(function (f, i) {
+      toneAt(sfxOut(), t + i * 0.09, f, 0, 0.5, 0.13, 'triangle');
+      toneAt(sfxOut(), t + i * 0.09, f * 2, 0, 0.3, 0.03, 'sine');
+    });
+    [523.3, 659.3, 784].forEach(function (f) { toneAt(sfxOut(), t + 0.4, f, 0, 1.1, 0.07, 'sine'); });
+  },
+  click: function () { beep(660, 0.06, 'triangle', 0.08); }
 };
+
+// ============ 背景音乐：现场合成，跟着塔的高度变快、加乐器 ============
+// 和弦走 C - Am - F - G，每小节 16 个十六分音符
+var CHORDS = [
+  { root: 130.8, notes: [261.6, 329.6, 392, 523.3] },
+  { root: 110, notes: [220, 261.6, 329.6, 440] },
+  { root: 87.3, notes: [174.6, 220, 261.6, 349.2] },
+  { root: 98, notes: [196, 246.9, 293.7, 392] }
+];
+var ARP = [0, 1, 2, 3, 2, 1, 2, 3];
+var music = { on: false, n: null, next: 0, step: 0, heat: 0 };
+
+function musicStart() {
+  if (!audio || saveState.muted || music.on) return;
+  var t = audio.currentTime;
+  var master = audio.createGain();
+  master.gain.setValueAtTime(0.0001, t);
+  master.gain.exponentialRampToValueAtTime(0.55, t + 0.6);
+  master.connect(audio.destination);
+  // 垫底的长音，换和弦时滑过去
+  var padF = audio.createBiquadFilter();
+  padF.type = 'lowpass';
+  padF.frequency.value = 700;
+  var padG = audio.createGain();
+  padG.gain.value = 0.045;
+  padF.connect(padG); padG.connect(master);
+  var pads = [0, 1].map(function (i) {
+    var o = audio.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = CHORDS[0].notes[i] / 2;
+    o.detune.value = i ? 6 : -6;
+    o.connect(padF);
+    o.start(t);
+    return o;
+  });
+  music.n = { master: master, pads: pads, padF: padF };
+  music.on = true;
+  music.step = 0;
+  music.next = t + 0.08;
+}
+
+function musicStop(fade) {
+  if (!music.on) return;
+  music.on = false;
+  var n = music.n, t = audio.currentTime;
+  n.master.gain.cancelScheduledValues(t);
+  n.master.gain.setValueAtTime(n.master.gain.value, t);
+  n.master.gain.linearRampToValueAtTime(0.0001, t + (fade || 0.3));
+  n.pads.forEach(function (o) { o.stop(t + (fade || 0.3) + 0.05); });
+  setTimeout(function () { try { n.master.disconnect(); } catch (e) { /* 已断开 */ } }, ((fade || 0.3) + 0.2) * 1000);
+}
+
+// heat 0~1：越接近目标 / 叠得越高，节奏越快、乐器越多
+function musicUpdate(heat) {
+  if (!music.on) return;
+  music.heat += (heat - music.heat) * 0.05;
+  var h = music.heat;
+  var bpm = 100 + h * 36;
+  var sixteenth = 60 / bpm / 4;
+  var n = music.n, out = n.master;
+  while (music.next < audio.currentTime + 0.12) {
+    var t = music.next, st = music.step % 16;
+    var chord = CHORDS[Math.floor(music.step / 16) % 4];
+    if (st === 0) {
+      n.pads[0].frequency.setTargetAtTime(chord.notes[0] / 2, t, 0.08);
+      n.pads[1].frequency.setTargetAtTime(chord.notes[2] / 2, t, 0.08);
+      n.padF.frequency.setTargetAtTime(600 + h * 900, t, 0.3);
+    }
+    // 底鼓
+    if (st === 0 || st === 8 || (h > 0.35 && (st === 4 || st === 12)) || (h > 0.75 && st === 14)) {
+      toneAt(out, t, 140, 42, 0.2, 0.32, 'sine');
+    }
+    // 军鼓（拍手）
+    if (h > 0.55 && (st === 4 || st === 12)) noiseAt(out, t, 0.12, 0.09, 'bandpass', 1800);
+    // 踩镲：反拍
+    if (st % 4 === 2) noiseAt(out, t, 0.04, 0.05 + h * 0.03, 'highpass', 7500);
+    if (h > 0.6 && st % 2 === 1) noiseAt(out, t, 0.025, 0.025, 'highpass', 9000);
+    // 贝斯
+    if (st === 0 || st === 6 || st === 10) toneAt(out, t, chord.root, 0, sixteenth * 3, 0.13, 'triangle');
+    // 琶音：中段才进来，后面变成十六分
+    var every = h > 0.7 ? 1 : 2;
+    if (h > 0.2 && st % every === 0) {
+      var idx = ARP[(st / every) % ARP.length];
+      toneAt(out, t, chord.notes[idx] * 2, 0, sixteenth * 1.6, 0.03 + h * 0.015, 'square');
+    }
+    music.next += sixteenth;
+    music.step++;
+  }
+}
 
 // ============ 等角立体绘制 ============
 function hsl(h, s, l) { return 'hsl(' + Math.round(h) + ',' + s + '%,' + l + '%)'; }
@@ -201,9 +387,10 @@ function drawBox(c, P, b, h, alpha) {
   var x0 = b.cx - b.w / 2, x1 = b.cx + b.w / 2, z0 = b.cz - b.d / 2, z1 = b.cz + b.d / 2;
   var yt = b.y + h, yb = b.y;
   if (alpha !== undefined) { c.save(); c.globalAlpha = alpha; }
-  poly(c, [iso(P, x1, yt, z0), iso(P, x1, yt, z1), iso(P, x1, yb, z1), iso(P, x1, yb, z0)], hsl(b.hue, 50, 50));
-  poly(c, [iso(P, x0, yt, z1), iso(P, x1, yt, z1), iso(P, x1, yb, z1), iso(P, x0, yb, z1)], hsl(b.hue, 48, 40));
-  poly(c, [iso(P, x0, yt, z0), iso(P, x1, yt, z0), iso(P, x1, yt, z1), iso(P, x0, yt, z1)], hsl(b.hue, 62, 66));
+  var sat = b.sat || 0;
+  poly(c, [iso(P, x1, yt, z0), iso(P, x1, yt, z1), iso(P, x1, yb, z1), iso(P, x1, yb, z0)], hsl(b.hue, 50 + sat, 50));
+  poly(c, [iso(P, x0, yt, z1), iso(P, x1, yt, z1), iso(P, x1, yb, z1), iso(P, x0, yb, z1)], hsl(b.hue, 48 + sat, 40));
+  poly(c, [iso(P, x0, yt, z0), iso(P, x1, yt, z0), iso(P, x1, yt, z1), iso(P, x0, yt, z1)], hsl(b.hue, 62 + sat, 66));
   if (alpha !== undefined) c.restore();
 }
 
@@ -220,12 +407,26 @@ function topOutline(c, P, b, h, pad, color, width) {
   c.stroke();
 }
 
+// 天空：上浅下深，和塔同一个色相；同时同步给页面背景（结算、首页文字都压在它上面）
+function skyTop(hue) { return hsl(hue - 8, 42, 64); }
+function skyBot(hue) { return hsl(hue + 14, 46, 38); }
+
 function paintBackdrop(c, w, h, hue) {
   var g = c.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, hsl(hue, 28, 15));
-  g.addColorStop(1, hsl(hue, 22, 7));
+  g.addColorStop(0, skyTop(hue));
+  g.addColorStop(1, skyBot(hue));
   c.fillStyle = g;
   c.fillRect(0, 0, w, h);
+}
+
+var skyHue = null;
+function setSky(hue) {
+  hue = Math.round(hue);
+  if (hue === skyHue) return;
+  skyHue = hue;
+  var st = document.documentElement.style;
+  st.setProperty('--sky-top', skyTop(hue));
+  st.setProperty('--sky-bot', skyBot(hue));
 }
 
 function roundRectPath(c, x, y, w, h, r) {
@@ -253,48 +454,97 @@ function setupCanvas(canvas, w, h) {
   return { c: c, dpr: dpr };
 }
 
-// 一座示意塔：首页、弹框、图标共用
-function paintSampleTower(c, P, hue0, layers, slide) {
-  var b = { cx: 0, cz: 0, w: BASE, d: BASE, y: -14, hue: hue0 };
-  drawBox(c, P, b, 14);
+// 一座示意塔：弹框、图标共用
+function paintSampleTower(c, P, layers, hue0, slide) {
+  drawBox(c, P, { cx: 0, cz: 0, w: BASE, d: BASE, y: -30, hue: hue0 }, 30);
   var w = BASE, d = BASE, cx = 0, cz = 0;
   for (var i = 0; i < layers; i++) {
     if (i % 3 === 2) { if (i % 2) { w -= 0.9; cx += 0.45; } else { d -= 0.9; cz -= 0.45; } }
-    drawBox(c, P, { cx: cx, cz: cz, w: w, d: d, y: i * LAYER, hue: hue0 + (i + 1) * 6 }, LAYER);
+    drawBox(c, P, { cx: cx, cz: cz, w: w, d: d, y: i * LAYER, hue: hueAt(hue0, i + 1) }, LAYER);
   }
-  if (slide) {
-    var top = { cx: cx + slide, cz: cz, w: w, d: d, y: layers * LAYER, hue: hue0 + (layers + 1) * 6 };
-    drawBox(c, P, top, LAYER);
-  }
+  if (slide) drawBox(c, P, { cx: cx + slide, cz: cz, w: w, d: d, y: layers * LAYER, hue: hueAt(hue0, layers + 1) }, LAYER);
   return { cx: cx, cz: cz, w: w, d: d, y: layers * LAYER };
 }
 
-// ============ 首页大图 ============
 function $(id) { return document.getElementById(id); }
 
-function paintHeroArt(c, w, h) {
-  paintBackdrop(c, w, h, 210);
-  var s = Math.min(w, h * 0.8) / 34;
-  var P = { ox: w * 0.64, oy: h * 0.36, s: s, camY: 8 };
-  var top = paintSampleTower(c, P, 190, 11, 5.5);
-  // 被切掉正在掉落的一小块
-  drawBox(c, P, { cx: top.cx - top.w / 2 - 1.6, cz: top.cz + 0.8, w: 2.2, d: top.d, y: top.y - 3.2, hue: 262 }, LAYER, 0.85);
-  // 完美对齐时的光圈
-  topOutline(c, P, { cx: top.cx, cz: top.cz, w: top.w, d: top.d, y: top.y - LAYER }, LAYER, 0.7, 'rgba(255,255,255,0.75)', 2);
+// ============ 首页：整屏是一座自己在叠的塔 ============
+var home = { c: null, w: 0, h: 0, hue: 195, stack: [], cur: null, camY: 0, rings: [], fade: 0 };
 
-  var g2 = c.createLinearGradient(0, h * 0.5, 0, h);
-  g2.addColorStop(0, 'rgba(13,16,22,0)');
-  g2.addColorStop(1, 'rgba(13,16,22,0.88)');
-  c.fillStyle = g2;
-  c.fillRect(0, h * 0.5, w, h * 0.5);
-}
-
-function drawHero() {
-  var box = $('hero');
+function resizeHome() {
+  var box = $('home');
   var w = box.clientWidth, h = box.clientHeight;
   if (!w || !h) return;
-  var s = setupCanvas($('hero-cv'), w, h);
-  paintHeroArt(s.c, w, h);
+  home.c = setupCanvas($('hero-cv'), w, h).c;
+  home.w = w; home.h = h;
+}
+
+function demoReset() {
+  var hues = HUES.filter(function (x) { return x !== home.hue; });
+  home.hue = hues[Math.floor(Math.random() * hues.length)];
+  home.stack = [];
+  for (var i = 1; i <= 4; i++) home.stack.push({ cx: 0, cz: 0, w: 8, d: 8, y: i * LAYER, hue: hueAt(home.hue, i) });
+  home.camY = 5 * LAYER;
+  home.rings = [];
+  demoSpawn();
+  setSky(home.hue);
+}
+
+function demoSpawn() {
+  var n = home.stack.length;
+  var axis = n % 2 ? 'z' : 'x';
+  home.cur = { cx: 0, cz: 0, w: 8, d: 8, y: (n + 1) * LAYER, hue: hueAt(home.hue, n + 1), axis: axis, off: -RANGE, dir: 1, wait: 0.35 + Math.random() * 0.7 };
+}
+
+function stepHome(dt) {
+  var b = home.cur;
+  if (home.fade > 0) {
+    home.fade -= dt;
+    if (home.fade <= 0) demoReset();
+  } else if (b) {
+    var prev = b.off;
+    b.off += b.dir * 8 * dt;
+    if (b.off > RANGE) { b.off = RANGE; b.dir = -1; }
+    if (b.off < -RANGE) { b.off = -RANGE; b.dir = 1; }
+    b.wait -= dt;
+    // 第二次以后经过正中间就落下，看起来像有人在玩
+    if (b.wait <= 0 && prev * b.off <= 0) {
+      b.off = 0;
+      var layer = { cx: 0, cz: 0, w: 8, d: 8, y: b.y, hue: b.hue };
+      home.stack.push(layer);
+      home.rings.push({ b: layer, life: 0.5 });
+      if (home.stack.length >= 16) { home.cur = null; home.fade = 1.2; }
+      else demoSpawn();
+    }
+    if (b.axis === 'x') b.cx = b.off; else b.cz = b.off;
+  }
+  var target = (home.stack.length + 1) * LAYER;
+  home.camY += (target - home.camY) * Math.min(1, dt * 4);
+  home.rings = home.rings.filter(function (r) { r.life -= dt; return r.life > 0; });
+}
+
+function drawHome() {
+  var c = home.c, w = home.w, h = home.h;
+  if (!c) return;
+  paintBackdrop(c, w, h, home.hue);
+  var s = Math.min(w, h * 0.6) / 30;
+  var P = { ox: w * 0.5, oy: h * 0.4, s: s, camY: home.camY };
+  c.save();
+  if (home.fade > 0) c.globalAlpha = Math.min(1, home.fade / 0.5);
+  drawBox(c, P, { cx: 0, cz: 0, w: 8, d: 8, y: -60, hue: home.hue }, 60 + LAYER);
+  home.stack.forEach(function (b) { drawBox(c, P, b, LAYER); });
+  if (home.cur) drawBox(c, P, home.cur, LAYER);
+  home.rings.forEach(function (r) {
+    topOutline(c, P, r.b, LAYER, 0.2 + (1 - r.life / 0.5) * 1.6, 'rgba(255,255,255,' + (r.life / 0.5 * 0.85).toFixed(2) + ')', 2);
+  });
+  c.restore();
+  // 底下压一层和天空同色的渐变，按钮和文字压在塔上也看得清
+  var hb = Math.round(home.hue + 14);
+  var g = c.createLinearGradient(0, h * 0.52, 0, h * 0.78);
+  g.addColorStop(0, 'hsla(' + hb + ',46%,38%,0)');
+  g.addColorStop(1, 'hsla(' + hb + ',46%,38%,0.92)');
+  c.fillStyle = g;
+  c.fillRect(0, h * 0.52, w, h * 0.48);
 }
 
 function drawDialogArt() {
@@ -305,58 +555,69 @@ function drawDialogArt() {
   var cnv = document.createElement('canvas');
   box.appendChild(cnv);
   var c = setupCanvas(cnv, w, h).c;
-  paintBackdrop(c, w, h, 210);
-  var P = { ox: w * 0.5, oy: h * 0.48, s: h / 15, camY: 3 };
-  paintSampleTower(c, P, 330, 5, 3);
+  var hue = skyHue === null ? 195 : skyHue;
+  paintBackdrop(c, w, h, hue);
+  var P = { ox: w * 0.5, oy: h * 0.5, s: h / 20, camY: 5 };
+  paintSampleTower(c, P, 5, hue, 3);
 }
 
 // ============ 游戏状态 ============
 var S = null;
 
-function startRun() {
+// level 为 0 表示无限模式
+function startRun(level) {
   var hue0 = HUES[Math.floor(Math.random() * HUES.length)];
   S = {
+    level: level, cfg: level ? levelCfg(level) : endlessCfg(),
     hue0: hue0,
     stack: [{ cx: 0, cz: 0, w: BASE, d: BASE, y: 0, hue: hue0 }],
     cur: null, falling: [], rings: [], floats: [],
     score: 0, combo: 0, maxCombo: 0, perfects: 0,
     status: 'play', revived: false, reviveReady: false, newBest: false, rank: null,
-    camY: LAYER, zoom: 1, zoomTarget: 1, camTarget: LAYER, clock: 0
+    camY: LAYER, zoom: 1, zoomTarget: 1, camTarget: LAYER, clock: 0, shake: 0, oyK: 0.56
   };
   spawn();
   hideOverlay();
   updateBar();
+  musicStop(0.05);
+  musicStart();
 }
 
 function topLayer() { return S.stack[S.stack.length - 1]; }
 
 function spawn() {
-  var t = topLayer();
-  var axis = S.score % 2 ? 'z' : 'x';
+  var t = topLayer(), c = S.cfg, n = S.score;
+  var axis = n % 2 ? 'z' : 'x';
+  var speed = c.speed(n);
+  if (n >= c.jitterFrom) speed *= 0.85 + Math.random() * 0.35;
+  var side = (n >= c.flipFrom && Math.random() < 0.5) ? 1 : -1;
   S.cur = {
     cx: t.cx, cz: t.cz, w: t.w, d: t.d, y: t.y + LAYER,
-    hue: S.hue0 + (S.stack.length) * 6,
-    axis: axis, off: -RANGE, dir: 1, speed: speedFor(S.score)
+    hue: hueAt(S.hue0, S.stack.length),
+    axis: axis, off: side * RANGE, dir: -side, speed: speed
   };
-  if (axis === 'x') S.cur.cx = t.cx - RANGE; else S.cur.cz = t.cz - RANGE;
+  if (axis === 'x') S.cur.cx = t.cx + side * RANGE; else S.cur.cz = t.cz + side * RANGE;
 }
 
 function drop() {
   if (!S || S.status !== 'play' || !S.cur) return;
+  if (S.clock < 0.3) return;   // 刚进来那一下点「开始」的手不算
   var t = topLayer(), b = S.cur;
   var key = b.axis === 'x' ? 'cx' : 'cz', size = b.axis === 'x' ? 'w' : 'd';
   var delta = b[key] - t[key];
   var layer = { cx: b.cx, cz: b.cz, w: b.w, d: b.d, y: b.y, hue: b.hue };
 
-  if (Math.abs(delta) <= PERFECT) {
+  if (Math.abs(delta) <= S.cfg.perfect) {
     layer[key] = t[key];
     S.combo++;
     S.perfects++;
     S.maxCombo = Math.max(S.maxCombo, S.combo);
-    if (S.combo >= GROW_AFTER) layer[size] = Math.min(BASE, layer[size] + GROW);
+    var grew = S.combo >= GROW_AFTER && layer[size] < BASE;
+    if (grew) layer[size] = Math.min(BASE, layer[size] + GROW);
     S.rings.push({ b: layer, life: 0.5 });
-    S.floats.push({ text: S.combo > 1 ? '完美 ×' + S.combo : '完美', life: 0.9, y: layer.y + LAYER * 2 });
+    S.floats.push({ text: grew ? '变宽了' : (S.combo > 1 ? '完美 ×' + S.combo : '完美'), life: 0.9, y: layer.y + LAYER * 2 });
     sfx.perfect(S.combo);
+    if (grew) sfx.grow();
     vibrate('medium');
   } else {
     var overlap = t[size] - Math.abs(delta);
@@ -373,38 +634,75 @@ function drop() {
     cut[size] = Math.abs(delta);
     cut[key] = layer[key] + (delta > 0 ? 1 : -1) * (overlap / 2 + Math.abs(delta) / 2);
     S.falling.push({ b: cut, vy: 0 });
-    sfx.place();
+    sfx.place(S.score);
+    sfx.cut();
+    S.shake = 0.12;
     vibrate('light');
   }
 
   S.stack.push(layer);
   S.score++;
   S.camTarget = layer.y + LAYER;
+  if (S.level && S.score >= S.cfg.target) {
+    S.cur = null;
+    updateBar();
+    levelClear();
+    return;
+  }
   spawn();
   updateBar();
 }
 
+function heat() {
+  if (!S) return 0;
+  if (S.level) return Math.min(1, S.score / S.cfg.target);
+  return Math.min(1, S.score / 35);
+}
+
+// 结束时拉远镜头看整座塔
+function pullBack() {
+  // 结算页上面是成绩、下面是按钮，塔要缩在中间那一段里
+  var towerH = S.stack.length * LAYER + 10;
+  S.zoomTarget = Math.min(0.75, (H * 0.27) / (towerH * view.s0));
+  S.camTarget = (S.stack.length * LAYER) / 2 + 2;
+}
+
+function levelClear() {
+  S.status = 'win';
+  musicStop(0.2);
+  sfx.clear();
+  vibrate('heavy');
+  pullBack();
+  S.newBest = S.level > saveState.cleared;
+  saveState.cleared = Math.max(saveState.cleared, S.level);
+  saveState.level = Math.min(LEVELS, Math.max(saveState.level, S.level + 1));
+  saveData(saveState);
+  setTimeout(showWin, 1000);
+}
+
 function gameOver() {
   S.status = 'fail';
+  musicStop(0.15);
   sfx.fail();
   vibrate('heavy');
-  // 拉远镜头看整座塔
-  var towerH = S.stack.length * LAYER + 6;
-  S.zoomTarget = Math.min(1, (H * 0.62) / (towerH * view.s0));
-  S.camTarget = (S.stack.length * LAYER) / 2;
-  S.newBest = S.score > saveState.best;
-  if (S.newBest) { saveState.best = S.score; saveData(saveState); }
+  S.shake = 0.35;
+  pullBack();
   var run = S;
-  submitScore(S.score).then(function (r) {
-    run.rank = r;
-    if (S === run && !$('overlay').classList.contains('hidden') && r) $('r-hint').textContent = resultHint(run);
-  });
+  if (!S.level) {
+    S.newBest = S.score > saveState.best;
+    if (S.newBest) { saveState.best = S.score; saveData(saveState); }
+    submitScore(S.score).then(function (r) {
+      run.rank = r;
+      if (S === run && !$('overlay').classList.contains('hidden') && r) $('r-hint').textContent = resultHint(run);
+    });
+  }
   setTimeout(showFail, 1100);
 }
 
 function revive() {
   S.revived = true;
   S.reviveReady = false;
+  S.clock = 0;
   S.status = 'play';
   S.zoomTarget = 1;
   S.camTarget = topLayer().y + LAYER;
@@ -412,6 +710,7 @@ function revive() {
   spawn();
   hideOverlay();
   updateBar();
+  musicStart();
 }
 
 // ============ 游戏画布 ============
@@ -430,20 +729,24 @@ function resizeGame() {
   cv.width = Math.round(cw * dpr);
   cv.height = Math.round(ch * dpr);
   var sc = Math.min(cw / W, ch / H);
-  view = { scale: sc, ox: (cw - W * sc) / 2, oy: (ch - H * sc) / 2, dpr: dpr, s0: (W * 0.6) / (2 * BASE * COS30) };
+  view = { scale: sc, ox: (cw - W * sc) / 2, oy: (ch - H * sc) / 2, dpr: dpr, s0: (W * 0.6) / (2 * BASE * COS30), cw: cw, ch: ch };
+  // 顶栏压在画布上，分数要放在顶栏下面
+  view.top = Math.max(0, ($('bar').offsetHeight - view.oy) / sc);
 }
 
 function render() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, cv.width, cv.height);
   if (!S) return;
-  var px = view.dpr * view.scale;
-  ctx.setTransform(px, 0, 0, px, view.dpr * view.ox, view.dpr * view.oy);
-
   var topHue = S.cur ? S.cur.hue : topLayer().hue;
-  paintBackdrop(ctx, W, H, topHue);
+  // 天空铺满整块画布（含左右/上下留出来的边），不只是逻辑区域
+  paintBackdrop(ctx, cv.width, cv.height, topHue);
+  setSky(topHue);
+  var px = view.dpr * view.scale;
+  var sx = 0, sy = 0;
+  if (S.shake > 0) { sx = (Math.random() - 0.5) * S.shake * 30; sy = (Math.random() - 0.5) * S.shake * 30; }
+  ctx.setTransform(px, 0, 0, px, view.dpr * (view.ox + sx), view.dpr * (view.oy + sy));
 
-  var P = { ox: W / 2, oy: H * 0.56, s: view.s0 * S.zoom, camY: S.camY };
+  var P = { ox: W / 2, oy: H * S.oyK, s: view.s0 * S.zoom, camY: S.camY };
   var t = topLayer();
 
   // 掉落块：在塔后面的先画，在前面的后画
@@ -453,7 +756,22 @@ function render() {
   });
   back.forEach(function (f) { drawBox(ctx, P, f.b, LAYER, 0.9); });
 
-  drawBox(ctx, P, { cx: 0, cz: 0, w: BASE, d: BASE, y: -40, hue: S.hue0 }, 40);
+  // 闯关模式的终点线：画在塔后面，塔叠上去就盖住了
+  if (S.level && S.status === 'play') {
+    var gy = S.cfg.target * LAYER;
+    var gb = { cx: 0, cz: 0, w: BASE, d: BASE, y: gy };
+    ctx.setLineDash([6, 6]);
+    topOutline(ctx, P, gb, LAYER, 0.6, 'rgba(255,255,255,0.55)', 2);
+    ctx.setLineDash([]);
+    var gp = iso(P, -BASE / 2 - 0.6, gy + LAYER, -BASE / 2 - 0.6);
+    ctx.font = '800 14px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText('终点 ' + S.cfg.target + ' 层', gp.x, gp.y - 8);
+  }
+
+  drawBox(ctx, P, { cx: 0, cz: 0, w: BASE, d: BASE, y: -40, hue: S.hue0 }, 40 + LAYER);
   S.stack.forEach(function (b, i) { if (i > 0) drawBox(ctx, P, b, LAYER); });
   if (S.cur) drawBox(ctx, P, S.cur, LAYER);
 
@@ -464,20 +782,19 @@ function render() {
     topOutline(ctx, P, r.b, LAYER, 0.2 + k * 1.6, 'rgba(255,255,255,' + (r.life / 0.5 * 0.85).toFixed(2) + ')', 2.5);
   });
 
-  // 分数
+  // 分数（结算时由结算页显示，这里不画）
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.font = '900 64px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
-  ctx.fillText(String(S.score), W / 2, 70);
+  if (S.status === 'play') {
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 76px "DIN Alternate", "Helvetica Neue", -apple-system, Roboto, sans-serif';
+    ctx.fillText(String(S.score), W / 2, view.top + 52);
+  }
 
   S.floats.forEach(function (f) {
     var p = iso(P, t.cx, f.y + (0.9 - f.life) * 2, t.cz);
     ctx.globalAlpha = Math.min(1, f.life / 0.5);
     ctx.font = '900 20px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.strokeText(f.text, p.x, p.y - 30);
     ctx.fillStyle = '#fff';
     ctx.fillText(f.text, p.x, p.y - 30);
   });
@@ -514,6 +831,9 @@ function step(dt) {
   S.floats = S.floats.filter(function (f) { f.life -= dt; return f.life > 0; });
   S.camY += (S.camTarget - S.camY) * Math.min(1, dt * 6);
   S.zoom += (S.zoomTarget - S.zoom) * Math.min(1, dt * 3);
+  if (S.shake > 0) S.shake = Math.max(0, S.shake - dt);
+  S.oyK += ((S.status === 'play' ? 0.56 : 0.47) - S.oyK) * Math.min(1, dt * 3);
+  if (S.status === 'play') musicUpdate(heat());
 }
 
 function loop(ts) {
@@ -523,6 +843,9 @@ function loop(ts) {
   if (inGame) {
     step(dt);
     render();
+  } else if (!$('home').classList.contains('hidden')) {
+    stepHome(dt);
+    drawHome();
   }
   requestAnimationFrame(loop);
 }
@@ -530,7 +853,9 @@ function loop(ts) {
 document.addEventListener('visibilitychange', function () {
   if (document.hidden) {
     running = false;
+    if (audio && audio.state === 'running') audio.suspend();
   } else if (!running) {
+    if (audio && inGame) audio.resume();
     running = true;
     last = 0;
     requestAnimationFrame(loop);
@@ -555,60 +880,113 @@ var ARROW = '<svg class="arrow" viewBox="0 0 24 24"><path d="M3 12h16M13 6l6 6-6
 
 function showHome() {
   inGame = false;
+  musicStop(0.3);
   hideOverlay();
   $('game').classList.add('hidden');
   $('home').classList.remove('hidden');
   renderHome();
-  drawHero();
+  resizeHome();
+  demoReset();
 }
 
-function showGame() {
+function showGame(level) {
   initAudio();
   $('home').classList.add('hidden');
   $('game').classList.remove('hidden');
   resizeGame();
-  startRun();
+  startRun(level);
   inGame = true;
 }
 
 function renderHome() {
-  $('home-best').innerHTML = saveState.best > 0
-    ? '最高叠到 <b>' + saveState.best + ' 层</b>'
-    : '点一下屏幕，方块就落下';
-  $('btn-start').innerHTML = '开始堆塔' + ARROW;
-  $('nav-sound').classList.toggle('muted', !!saveState.muted);
-  $('sound-label').textContent = saveState.muted ? '声音 关' : '声音 开';
+  var endless = saveState.mode === 'endless';
+  $('tab-level').classList.toggle('active', !endless);
+  $('tab-endless').classList.toggle('active', endless);
+  if (endless) {
+    $('home-best').innerHTML = saveState.best > 0
+      ? '无限模式最高 <b>' + saveState.best + ' 层</b>'
+      : '没有终点，越往上越快，看你能叠多高';
+    $('btn-start').innerHTML = '开始无限模式' + ARROW;
+  } else {
+    var lv = saveState.level;
+    $('home-best').innerHTML = '第 ' + lv + ' 关 · 叠到 <b>' + levelCfg(lv).target + ' 层</b>过关' +
+      (saveState.cleared ? '　已通关 ' + saveState.cleared + ' / ' + LEVELS : '');
+    $('btn-start').innerHTML = (lv > 1 ? '继续第 ' + lv + ' 关' : '开始挑战') + ARROW;
+  }
+  $('btn-sound').classList.toggle('muted', !!saveState.muted);
   renderFollow();
 }
 
 function updateBar() {
-  $('level').textContent = '第 ' + S.score + ' 层';
-  $('progress').textContent = '最佳 ' + Math.max(saveState.best, S.score) + ' 层' + (S.combo > 1 ? ' · 连续完美 ' + S.combo : '');
-  $('bar-fill').style.width = (saveState.best ? Math.min(100, S.score / saveState.best * 100) : 0) + '%';
+  if (!S.level) {
+    $('level').textContent = '无限模式';
+    $('progress').textContent = '最佳 ' + Math.max(saveState.best, S.score) + ' 层' + (S.combo > 1 ? ' · 连续完美 ' + S.combo : '');
+    $('bar-fill').style.width = (saveState.best ? Math.min(100, S.score / saveState.best * 100) : 0) + '%';
+    return;
+  }
+  var left = Math.max(0, S.cfg.target - S.score);
+  $('level').textContent = '第 ' + S.level + ' 关';
+  $('progress').textContent = (left ? '还差 ' + left + ' 层' : '到顶了') + (S.combo > 1 ? ' · 连续完美 ' + S.combo : '');
+  $('bar-fill').style.width = Math.min(100, S.score / S.cfg.target * 100) + '%';
 }
 
-$('btn-start').addEventListener('click', showGame);
+function restartRun() { initAudio(); startRun(S.level); }
+
+$('btn-start').addEventListener('click', function () {
+  showGame(saveState.mode === 'endless' ? 0 : saveState.level);
+});
 $('btn-back').addEventListener('click', showHome);
-$('btn-restart').addEventListener('click', function () { initAudio(); startRun(); });
+$('btn-restart').addEventListener('click', restartRun);
 $('nav-rank').addEventListener('click', function () { openRank('day'); });
 
-$('nav-sound').addEventListener('click', function () {
+['tab-level', 'tab-endless'].forEach(function (id) {
+  $(id).addEventListener('click', function () {
+    var m = $(id).getAttribute('data-mode');
+    if (saveState.mode === m) return;
+    saveState.mode = m;
+    saveData(saveState);
+    renderHome();
+  });
+});
+
+$('btn-sound').addEventListener('click', function () {
   saveState.muted = !saveState.muted;
   saveData(saveState);
   renderHome();
-  if (!saveState.muted) { initAudio(); sfx.place(); }
+  if (saveState.muted) musicStop(0.1);
+  else { initAudio(); sfx.perfect(3); }
 });
 
 $('nav-help').addEventListener('click', function () {
   openDialog({
     kicker: '怎么玩',
     title: '玩法说明',
-    html: '<ol><li>方块会左右来回滑，点一下屏幕它就落下。</li>' +
-          '<li>没对齐的部分会被切掉，方块越来越窄，越往上越难。</li>' +
-          '<li>正好对齐会「叮」一声，连续对齐 ' + GROW_AFTER + ' 次以上，方块会慢慢变宽回来。</li>' +
-          '<li>方块完全没放上去就结束了，发一篇笔记可以复活一次。</li>' +
-          '<li>叠了多少层会上排行榜。</li></ol>',
+    html: '<ol><li>方块会来回滑，点一下屏幕它就落下。</li>' +
+          '<li>没对齐的部分会被切掉，方块越来越窄。完全没放上去就结束了。</li>' +
+          '<li>正好对齐会「叮」一声，连续对齐 ' + GROW_AFTER + ' 次以上，方块会变宽一点。</li>' +
+          '<li>闯关模式叠到终点线就过关，一共 ' + LEVELS + ' 关。后面的关会忽快忽慢，还会从另一边滑出来。</li>' +
+          '<li>无限模式没有终点，叠了多少层会上排行榜。</li>' +
+          '<li>输了发一篇笔记可以复活一次。</li></ol>',
     main: '知道了',
+    onMain: closeDialog
+  });
+});
+
+$('nav-levels').addEventListener('click', function () {
+  var unlocked = Math.max(1, saveState.level);
+  var html = '<div class="lv-grid">';
+  for (var n = 1; n <= LEVELS; n++) {
+    var cls = n > unlocked ? 'locked' : (n <= saveState.cleared ? 'done' : '');
+    if (n === unlocked) cls += ' current';
+    var tag = n > unlocked ? '未解锁' : (n <= saveState.cleared ? '已过' : levelCfg(n).target + '层');
+    html += '<button type="button" data-lv="' + n + '" class="' + cls + '">' + n + '<small>' + tag + '</small></button>';
+  }
+  html += '</div>';
+  openDialog({
+    kicker: '已解锁 ' + unlocked + ' / ' + LEVELS + ' 关',
+    title: '选择关卡',
+    html: html,
+    main: '关闭',
     onMain: closeDialog
   });
 });
@@ -746,10 +1124,10 @@ function fillSheet(o) {
     el.onclick = o[b[2]] || null;
   });
   $('overlay').classList.remove('hidden');
-  $('overlay').scrollTop = 0;
+  $('bar').classList.add('hidden');
 }
 
-function hideOverlay() { $('overlay').classList.add('hidden'); }
+function hideOverlay() { $('overlay').classList.add('hidden'); $('bar').classList.remove('hidden'); }
 
 function resultHint(run) {
   var r = run.rank;
@@ -760,28 +1138,59 @@ function resultHint(run) {
   return rankText || ('离最佳还差 ' + Math.max(0, saveState.best - run.score) + ' 层');
 }
 
+function failStats() {
+  return [['完美对齐', S.perfects + ' 次'], ['最长连续完美', S.maxCombo + ' 次'],
+    S.level ? ['本关目标', S.cfg.target + ' 层'] : ['历史最佳', saveState.best + ' 层']];
+}
+
 function showFail() {
   var canRevive = !S.revived;
+  var lv = S.level;
   var o = {
-    kicker: '本局成绩',
+    kicker: lv ? '第 ' + lv + ' 关' : '无限模式',
     num: String(S.score),
     unit: '层',
-    tag: S.newBest ? '新纪录' : '本局',
+    tag: !lv && S.newBest ? '新纪录' : '没过',
     title: '没放上去',
     sub: canRevive ? '发一篇笔记就能接着往上叠。' : '这局的复活机会用过了，再来一局吧。',
-    stats: [['完美对齐', S.perfects + ' 次'], ['最长连续完美', S.maxCombo + ' 次'], ['历史最佳', saveState.best + ' 层']],
-    pct: saveState.best ? S.score / saveState.best : 1,
-    hint: resultHint(S)
+    stats: failStats(),
+    pct: lv ? S.score / S.cfg.target : (saveState.best ? S.score / saveState.best : 1),
+    hint: lv ? '离终点还差 ' + (S.cfg.target - S.score) + ' 层' : resultHint(S)
   };
   if (canRevive) {
     o.main = '发笔记复活'; o.mainArrow = true; o.onMain = onReviveClick;
     o.note = '发布成功后手动继续 · 每局一次';
-    o.second = '再来一局'; o.onSecond = startRun;
+    o.second = '重新开始'; o.onSecond = restartRun;
   } else {
-    o.main = '再来一局'; o.mainArrow = true; o.onMain = startRun;
+    o.main = '重新开始'; o.mainArrow = true; o.onMain = restartRun;
     o.second = '发笔记晒成绩'; o.onSecond = function () { shareNote(false); };
   }
-  o.third = '看排行榜'; o.onThird = function () { openRank('day'); };
+  if (!lv) { o.third = '看排行榜'; o.onThird = function () { openRank('day'); }; }
+  o.fourth = '返回主页'; o.onFourth = showHome;
+  fillSheet(o);
+}
+
+function showWin() {
+  var lv = S.level, last = lv >= LEVELS;
+  var o = {
+    kicker: '第 ' + lv + ' 关',
+    num: String(S.score),
+    unit: '层',
+    tag: last ? '全部通关' : '过关',
+    title: last ? '全部叠完了' : '叠到顶了',
+    sub: last ? LEVELS + ' 关全过了，去无限模式冲排行榜吧。' : '下一关要叠到 ' + levelCfg(lv + 1).target + ' 层，方块也更快。',
+    stats: [['完美对齐', S.perfects + ' 次'], ['最长连续完美', S.maxCombo + ' 次'], ['已通关', saveState.cleared + ' / ' + LEVELS]],
+    pct: saveState.cleared / LEVELS,
+    hint: S.perfects >= S.score * 0.6 ? '一大半都是完美对齐，手很稳' : '多卡几个完美，方块会变宽回来'
+  };
+  if (last) {
+    o.main = '去无限模式'; o.mainArrow = true;
+    o.onMain = function () { saveState.mode = 'endless'; saveData(saveState); startRun(0); };
+  } else {
+    o.main = '下一关'; o.mainArrow = true; o.onMain = function () { startRun(lv + 1); };
+  }
+  o.second = '发笔记晒成绩'; o.onSecond = function () { shareNote(false); };
+  o.third = '再玩一次这关'; o.onThird = restartRun;
   o.fourth = '返回主页'; o.onFourth = showHome;
   fillSheet(o);
 }
@@ -958,6 +1367,15 @@ function renderMyRank(el, me) {
 }
 
 $('dlg-body').addEventListener('click', function (e) {
+  var lvBtn = e.target.closest ? e.target.closest('button[data-lv]') : null;
+  if (lvBtn) {
+    var n = parseInt(lvBtn.getAttribute('data-lv'), 10);
+    if (n > Math.max(1, saveState.level)) { toast('先通过第 ' + (n - 1) + ' 关才能玩'); return; }
+    closeDialog();
+    saveState.mode = 'level';
+    showGame(n);
+    return;
+  }
   var btn = e.target.closest ? e.target.closest('button[data-period]') : null;
   if (!btn) return;
   var all = $('dlg-body').querySelectorAll('button[data-period]');
@@ -970,7 +1388,7 @@ function makeShareImage(isFail) {
   var c = document.createElement('canvas');
   c.width = 900; c.height = 1200;
   var x = c.getContext('2d');
-  paintBackdrop(x, 900, 1200, S.hue0 + S.stack.length * 6);
+  paintBackdrop(x, 900, 1200, hueAt(S.hue0, S.stack.length));
 
   var gh = 760, gw = gh * W / H;
   var gx = (900 - gw) / 2, gy = 1200 - gh - 30;
@@ -1015,7 +1433,7 @@ async function shareNote(isFail) {
   try {
     var url = await toFilePath(makeShareImage(isFail));
     await miniTool.postNote({
-      title: '叠叠高叠到了' + S.score + '层',
+      title: S.status === 'win' ? '叠叠高过了第' + S.level + '关' : '叠叠高叠到了' + S.score + '层',
       content: '小工具「叠叠高」，方块来回滑，点一下落下，没对齐就切掉。我叠到了' + S.score + '层，你能叠多高？ #堆塔 #小游戏',
       pageType: 'photo_publish',
       mediaInfo: { image_resources: [{ url: url }] }
@@ -1046,14 +1464,17 @@ async function applyTopInset() {
 
 // ============ 启动 ============
 window.addEventListener('resize', function () {
-  if (inGame) resizeGame(); else drawHero();
+  if (inGame) resizeGame(); else resizeHome();
 });
 
 (async function boot() {
   var d = await loadData();
   if (d) {
     saveState.best = Math.max(0, d.best | 0);
+    saveState.cleared = Math.min(LEVELS, Math.max(0, d.cleared | 0));
+    saveState.level = Math.min(LEVELS, Math.max(1, d.level | 0, saveState.cleared + 1));
     saveState.muted = !!d.muted;
+    saveState.mode = d.mode === 'endless' ? 'endless' : 'level';
   }
   await applyTopInset();
   canVibrate = await canUse('vibrateShort', 9500);
