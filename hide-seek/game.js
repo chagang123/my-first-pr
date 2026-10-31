@@ -187,8 +187,167 @@ var sfx = {
   warn: function () { beep(300, 0.1, 'triangle', 0.1); },
   tick: function () { beep(1000, 0.04, 'sine', 0.06); },
   win: function () { [523, 659, 784, 1046].forEach(function (f, i) { setTimeout(function () { beep(f, 0.18, 'triangle', 0.14); }, i * 110); }); },
-  fail: function () { beep(330, 0.35, 'sine', 0.14, 140); }
+  fail: function () { beep(330, 0.35, 'sine', 0.14, 140); },
+  // 被抓到时的惊吓音：一团不和谐的音加一下噪声
+  caught: function () {
+    if (!audio || saveState.muted) return;
+    [392, 415, 440, 466].forEach(function (f) { beep(f, 0.55, 'sawtooth', 0.05, f * 0.7); });
+    noiseHit(audio.destination, audio.currentTime, 0.25, 0.3, 2000, 0);
+  }
 };
+
+// ============ 氛围音：心跳、低频嗡鸣、脚步声、被追时的低音循环 ============
+// 包里不能放音频文件，全部用 Web Audio 现场合成
+var noiseBuf = null;
+function getNoise() {
+  if (!noiseBuf) {
+    var len = Math.floor(audio.sampleRate * 0.3);
+    noiseBuf = audio.createBuffer(1, len, audio.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
+}
+
+function panTo(dest, pan) {
+  if (!pan || typeof audio.createStereoPanner !== 'function') return dest;
+  var p = audio.createStereoPanner();
+  p.pan.value = Math.max(-1, Math.min(1, pan));
+  p.connect(dest);
+  return p;
+}
+
+function noiseHit(dest, t, dur, vol, band, pan) {
+  var src = audio.createBufferSource();
+  src.buffer = getNoise();
+  var f = audio.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.value = band;
+  f.Q.value = 1.2;
+  var g = audio.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  src.connect(f); f.connect(g); g.connect(panTo(dest, pan));
+  src.start(t);
+  src.stop(t + dur + 0.02);
+}
+
+function toneHit(dest, t, freq, freqEnd, dur, vol, type) {
+  var o = audio.createOscillator();
+  var g = audio.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t);
+  if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(dest);
+  o.start(t);
+  o.stop(t + dur + 0.02);
+}
+
+var CHASE_NOTES = [110, 130.8, 164.8, 130.8, 110, 130.8, 174.6, 164.8];
+var amb = { on: false, n: null, tension: 0, chase: 0, nextBeat: 0, nextNote: 0, noteIdx: 0 };
+
+function ambStart() {
+  if (!audio || amb.on) return;
+  var t = audio.currentTime;
+  var master = audio.createGain();
+  master.gain.value = saveState.muted ? 0 : 1;
+  master.connect(audio.destination);
+  // 外界的声音走闷音滤波，躲进柜子时把高频压掉
+  var muffle = audio.createBiquadFilter();
+  muffle.type = 'lowpass';
+  muffle.frequency.value = 16000;
+  muffle.connect(master);
+  var droneGain = audio.createGain();
+  droneGain.gain.setValueAtTime(0, t);
+  droneGain.gain.linearRampToValueAtTime(0.035, t + 1.5);
+  var droneFilter = audio.createBiquadFilter();
+  droneFilter.type = 'lowpass';
+  droneFilter.frequency.value = 180;
+  droneFilter.connect(droneGain);
+  droneGain.connect(muffle);
+  var oscs = [55, 55.6, 82.4].map(function (f, i) {
+    var o = audio.createOscillator();
+    o.type = i === 2 ? 'triangle' : 'sawtooth';
+    o.frequency.value = f;
+    o.connect(droneFilter);
+    o.start(t);
+    return o;
+  });
+  amb.n = { master: master, muffle: muffle, droneGain: droneGain, droneFilter: droneFilter, oscs: oscs };
+  amb.on = true;
+  amb.tension = 0;
+  amb.chase = 0;
+  amb.nextBeat = t + 0.5;
+  amb.nextNote = t;
+  amb.noteIdx = 0;
+}
+
+function ambStop(fade) {
+  if (!amb.on) return;
+  var n = amb.n, t = audio.currentTime, f = fade || 0.3;
+  n.master.gain.cancelScheduledValues(t);
+  n.master.gain.setValueAtTime(n.master.gain.value, t);
+  n.master.gain.linearRampToValueAtTime(0, t + f);
+  n.oscs.forEach(function (o) { o.stop(t + f + 0.05); });
+  setTimeout(function () { try { n.master.disconnect(); } catch (e) { /* 已断开 */ } }, (f + 0.2) * 1000);
+  amb.on = false;
+  amb.n = null;
+}
+
+function ambUpdate(dt) {
+  if (!audio) return;
+  if (!amb.on) ambStart();
+  var n = amb.n, t = audio.currentTime, p = S.player;
+
+  var nearest = 99, chasing = false;
+  S.seekers.forEach(function (s) {
+    var d = Math.sqrt((s.x - p.x) * (s.x - p.x) + (s.y - p.y) * (s.y - p.y)) / T;
+    if (d < nearest) nearest = d;
+    if (s.state === 'chase') chasing = true;
+  });
+  var target = Math.max(chasing ? 1 : 0, spotDanger() ? 0.9 : 0, Math.max(0, Math.min(1, (7 - nearest) / 6)) * 0.75);
+  amb.tension += (target - amb.tension) * Math.min(1, dt * 2);
+  amb.chase += ((chasing ? 1 : 0) - amb.chase) * Math.min(1, dt * 3);
+  var k = amb.tension;
+
+  n.master.gain.setTargetAtTime(saveState.muted ? 0 : 1, t, 0.05);
+  n.muffle.frequency.setTargetAtTime(p.hidden ? 650 : 16000, t, 0.12);
+  n.droneGain.gain.setTargetAtTime(0.03 + 0.05 * k, t, 0.3);
+  n.droneFilter.frequency.setTargetAtTime(160 + 420 * k, t, 0.3);
+
+  // 心跳：越危险越快越响，不走闷音滤波
+  var bpm = 58 + 82 * k, vol = 0.14 + 0.3 * k;
+  if (amb.nextBeat < t) amb.nextBeat = t + 0.05;
+  while (amb.nextBeat < t + 0.15) {
+    toneHit(n.master, amb.nextBeat, 75, 42, 0.16, vol, 'sine');
+    toneHit(n.master, amb.nextBeat + 0.17, 68, 40, 0.14, vol * 0.65, 'sine');
+    amb.nextBeat += 60 / bpm;
+  }
+
+  // 被追时的低音循环
+  if (amb.chase > 0.05) {
+    if (amb.nextNote < t) amb.nextNote = t + 0.02;
+    while (amb.nextNote < t + 0.15) {
+      toneHit(n.muffle, amb.nextNote, CHASE_NOTES[amb.noteIdx % CHASE_NOTES.length], 0, 0.16, 0.05 * amb.chase, 'square');
+      amb.noteIdx++;
+      amb.nextNote += 0.19;
+    }
+  }
+
+  // 脚步声：附近有人在走就能听到，左右声道跟着人的位置
+  S.seekers.forEach(function (s) {
+    var d = Math.sqrt((s.x - p.x) * (s.x - p.x) + (s.y - p.y) * (s.y - p.y)) / T;
+    if (!s.path || s.state === 'look' || d > 6) { s.stepT = 0; return; }
+    s.stepT = (s.stepT || 0) - dt;
+    if (s.stepT <= 0) {
+      s.stepT = s.state === 'chase' ? 0.24 : 0.4;
+      noiseHit(n.muffle, t + 0.01, 0.06, 0.16 * (1 - d / 6) + 0.02, 900 + Math.random() * 400, (s.x - p.x) / (W * 0.5));
+    }
+  });
+}
 
 // ============ 随机数（关卡可复现） ============
 function mulberry32(a) {
@@ -388,6 +547,7 @@ function endlessParams() {
 }
 
 function startLevel(n, endless) {
+  ambStop(0.1);
   var map = genMap(endless ? ENDLESS_MAP : n);
   var prm = endless ? endlessParams() : levelParams(n);
   S = {
@@ -647,6 +807,7 @@ function step(dt) {
     if (whole <= 5 && whole !== S.lastTick && whole > 0) { S.lastTick = whole; sfx.tick(); }
     if (S.left <= 0) { S.left = 0; win(); }
   }
+  if (S.status === 'play') ambUpdate(dt);
   updateBar();
 }
 
@@ -654,6 +815,7 @@ function endlessScore() { return Math.round(S.elapsed * 10) / 10; }
 
 function win() {
   S.status = 'win';
+  ambStop(0.6);
   sfx.win();
   vibrate('heavy');
   if (S.level + 1 > saveState.level) saveState.level = S.level + 1;
@@ -664,7 +826,8 @@ function win() {
 
 function fail() {
   S.status = 'fail';
-  sfx.fail();
+  ambStop(0.08);
+  sfx.caught();
   vibrate('heavy');
   if (S.mode === 'endless') {
     var score = endlessScore();
@@ -1042,6 +1205,10 @@ function loop(ts) {
 }
 
 document.addEventListener('visibilitychange', function () {
+  // 切到后台时心跳和嗡鸣也要停，不然后台还在响
+  if (audio) {
+    try { if (document.hidden) audio.suspend(); else if (inGame) audio.resume(); } catch (e) { /* 部分内核不支持 */ }
+  }
   if (document.hidden) {
     running = false;
   } else if (!running) {
@@ -1082,6 +1249,7 @@ window.addEventListener('keyup', function (e) { var k = KEYMAP[e.key]; if (k) in
 // ============ 页面切换 ============
 function showHome() {
   inGame = false;
+  ambStop(0.3);
   hideOverlay();
   $('game').classList.add('hidden');
   $('home').classList.remove('hidden');
