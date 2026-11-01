@@ -177,16 +177,22 @@ canvas#stars {
 .card {
   border: 1px solid rgba(180, 150, 100, .2);
   border-radius: 12px;
-  padding: 32px 24px;
   background: rgba(255, 255, 255, .02);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   transition: border-color .3s, background .3s;
-  cursor: pointer;
+  overflow: hidden;
 }
-.card:hover {
+.card:hover, .card.open {
   border-color: rgba(220, 170, 80, .4);
   background: rgba(255, 255, 255, .04);
+}
+.card-header {
+  padding: 32px 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .card-title {
   font-size: clamp(14px, 1.6vw, 18px);
@@ -195,6 +201,70 @@ canvas#stars {
   text-transform: uppercase;
   color: rgba(230, 200, 140, .85);
   line-height: 1.4;
+}
+.card-arrow {
+  font-size: 12px;
+  color: rgba(230, 200, 140, .4);
+  transition: transform .3s;
+}
+.card.open .card-arrow { transform: rotate(90deg); }
+
+/* ── 二级菜单 ── */
+.card-sub {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .4s ease;
+}
+.card.open .card-sub { max-height: 800px; }
+
+.sub-item {
+  border-top: 1px solid rgba(180, 150, 100, .1);
+}
+.sub-header {
+  padding: 14px 24px 14px 36px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background .2s;
+}
+.sub-header:hover { background: rgba(255, 255, 255, .03); }
+.sub-title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  color: rgba(220, 200, 160, .7);
+}
+.sub-arrow {
+  font-size: 10px;
+  color: rgba(220, 200, 160, .3);
+  transition: transform .3s;
+}
+.sub-item.open .sub-arrow { transform: rotate(90deg); }
+
+/* ── 三级菜单 ── */
+.sub-sub {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .3s ease;
+}
+.sub-item.open .sub-sub { max-height: 400px; }
+
+.sub-sub-item {
+  display: block;
+  padding: 10px 24px 10px 52px;
+  font-size: 12px;
+  letter-spacing: .05em;
+  color: rgba(200, 180, 140, .5);
+  transition: color .2s, background .2s;
+  cursor: pointer;
+}
+.sub-sub-item:hover {
+  color: rgba(230, 200, 140, .9);
+  background: rgba(255, 255, 255, .02);
+}
+.sub-item:last-child .sub-sub-item:last-child {
+  padding-bottom: 16px;
 }
 
 /* ══════ Footer ══════ */
@@ -260,18 +330,169 @@ canvas#stars {
 <section class="showcase" id="showcase">
   <h2 class="showcase-title">LEGEND OF DZI</h2>           <!-- ← 板块标题 -->
   <div class="cards">
+
+    <!-- ═══ 卡片1 ═══ -->
     <div class="card">
-      <div class="card-title">ORIGIN RELIC</div>           <!-- ← 卡片1 -->
+      <div class="card-header" onclick="toggleCard(this)">
+        <div class="card-title">ORIGIN RELIC</div>                   <!-- ← 卡片1标题 -->
+        <span class="card-arrow">▶</span>
+      </div>
+      <div class="card-sub">
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Ancient Tibet</span>             <!-- ← 二级-1 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">History of Dzi</span>         <!-- ← 三级 -->
+            <span class="sub-sub-item">Sacred Origins</span>         <!-- ← 三级 -->
+            <span class="sub-sub-item">Mythology</span>              <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Myanmar Legacy</span>            <!-- ← 二级-2 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Mining Sites</span>           <!-- ← 三级 -->
+            <span class="sub-sub-item">Geological Formation</span>   <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Sacred Mountains</span>          <!-- ← 二级-3 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Mount Kailash</span>          <!-- ← 三级 -->
+            <span class="sub-sub-item">Pilgrimage Routes</span>      <!-- ← 三级 -->
+          </div>
+        </div>
+      </div>
     </div>
+
+    <!-- ═══ 卡片2 ═══ -->
     <div class="card">
-      <div class="card-title">EYE CODE<br>SYSTEM</div>     <!-- ← 卡片2 -->
+      <div class="card-header" onclick="toggleCard(this)">
+        <div class="card-title">EYE CODE<br>SYSTEM</div>             <!-- ← 卡片2标题 -->
+        <span class="card-arrow">▶</span>
+      </div>
+      <div class="card-sub">
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Eye Patterns</span>              <!-- ← 二级-1 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">One-Eye Dzi</span>            <!-- ← 三级 -->
+            <span class="sub-sub-item">Two-Eye Dzi</span>            <!-- ← 三级 -->
+            <span class="sub-sub-item">Nine-Eye Dzi</span>           <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Decoding</span>                  <!-- ← 二级-2 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Symbol Meanings</span>        <!-- ← 三级 -->
+            <span class="sub-sub-item">Spiritual Geometry</span>     <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Rare Editions</span>             <!-- ← 二级-3 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Collector Series</span>       <!-- ← 三级 -->
+            <span class="sub-sub-item">Museum Archive</span>         <!-- ← 三级 -->
+          </div>
+        </div>
+      </div>
     </div>
+
+    <!-- ═══ 卡片3 ═══ -->
     <div class="card">
-      <div class="card-title">PROTECTION<br>FIELD</div>    <!-- ← 卡片3 -->
+      <div class="card-header" onclick="toggleCard(this)">
+        <div class="card-title">PROTECTION<br>FIELD</div>            <!-- ← 卡片3标题 -->
+        <span class="card-arrow">▶</span>
+      </div>
+      <div class="card-sub">
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Spiritual Shield</span>          <!-- ← 二级-1 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Warding Power</span>          <!-- ← 三级 -->
+            <span class="sub-sub-item">Blessing Rituals</span>       <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Health & Balance</span>          <!-- ← 二级-2 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Chakra Alignment</span>       <!-- ← 三级 -->
+            <span class="sub-sub-item">Healing Traditions</span>     <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Wealth & Fortune</span>          <!-- ← 二级-3 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Prosperity Stones</span>      <!-- ← 三级 -->
+            <span class="sub-sub-item">Business Talismans</span>     <!-- ← 三级 -->
+          </div>
+        </div>
+      </div>
     </div>
+
+    <!-- ═══ 卡片4 ═══ -->
     <div class="card">
-      <div class="card-title">ENERGY<br>UNIVERSE</div>     <!-- ← 卡片4 -->
+      <div class="card-header" onclick="toggleCard(this)">
+        <div class="card-title">ENERGY<br>UNIVERSE</div>             <!-- ← 卡片4标题 -->
+        <span class="card-arrow">▶</span>
+      </div>
+      <div class="card-sub">
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Cosmic Frequency</span>          <!-- ← 二级-1 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Vibration Theory</span>       <!-- ← 三级 -->
+            <span class="sub-sub-item">Resonance Testing</span>      <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Magnetic Field</span>            <!-- ← 二级-2 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Field Measurement</span>      <!-- ← 三级 -->
+            <span class="sub-sub-item">Scientific Research</span>    <!-- ← 三级 -->
+          </div>
+        </div>
+        <div class="sub-item">
+          <div class="sub-header" onclick="toggleSub(event,this)">
+            <span class="sub-title">Meditation</span>                <!-- ← 二级-3 -->
+            <span class="sub-arrow">▶</span>
+          </div>
+          <div class="sub-sub">
+            <span class="sub-sub-item">Practice Guide</span>         <!-- ← 三级 -->
+            <span class="sub-sub-item">Energy Channeling</span>      <!-- ← 三级 -->
+          </div>
+        </div>
+      </div>
     </div>
+
   </div>
 </section>
 
@@ -329,6 +550,17 @@ window.addEventListener('resize', () => { resize(); createParticles(); });
 resize();
 createParticles();
 draw();
+
+// 菜单展开/收起
+function toggleCard(header) {
+  const card = header.parentElement;
+  card.classList.toggle('open');
+}
+function toggleSub(e, header) {
+  e.stopPropagation();
+  const item = header.parentElement;
+  item.classList.toggle('open');
+}
 </script>
 </body>
 </html>
