@@ -1,1 +1,7 @@
 .claude/
+
+# 闲鱼读帖助手的登录数据（含账号登录状态，不能提交）
+xianyu-reader/浏览器数据/
+__pycache__/
+xianyu-reader/运行日志.txt
+本地副本/

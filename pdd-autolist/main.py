@@ -182,6 +182,30 @@ def check(p):
     return errors, warns
 
 
+COPY_DIR = HERE / "本地副本"
+
+
+def local_copies(todo):
+    """开跑前把这一批商品的资料整个拷到程序旁边的「本地副本」，上架时只读本机的。
+    2026-11-01 客户日志：资料放在共享盘（\\\\郑渝文\\共享文件夹）上，一次放十几个品时，跑到第 6 个以后
+    图片一个个「No such file or directory」（开跑时都在），共享盘上的文件中途被挪走或连接断了。
+    拷不下来的商品直接报出来，不上"""
+    import shutil
+    shutil.rmtree(COPY_DIR, ignore_errors=True)      # 上一批的副本没用了
+    out = []
+    for i, p in enumerate(todo):
+        dst = COPY_DIR / f"{i:02d}_{p.goods_id}"
+        try:
+            shutil.copytree(p.folder, dst)
+            q = read_product(dst)
+            apply_price(q)
+            out.append(q)
+        except Exception as e:
+            log(f"✗ {p.title}：资料拷不下来，这个先不上（{str(e).splitlines()[0][:120]}）")
+    log(f"资料已拷到本机 {len(out)}/{len(todo)} 个，上架时不再读共享盘")
+    return out
+
+
 def read_all(root: Path):
     """读出所有商品，返回 [(商品或None, 文件夹, 错误, 提醒)]"""
     out = []
@@ -285,6 +309,9 @@ def cmd_upload(root: Path, shops, do_submit=True):
                 log(f"【{name}】资料里的商品都已经上过了")
                 continue
             log(f"【{name}】这次要上 {len(todo)} 个商品")
+            todo = local_copies(todo)
+            if not todo:
+                continue
             browser, ctx, edge = open_edge(pw, HERE / "浏览器数据" / name, "https://mms.pinduoduo.com/home/")
             ctx.on("page", lambda pg: pg.on("dialog", lambda d: d.accept()))   # 离开页面的确认框直接确定
             page = wait_login(ctx)
@@ -314,7 +341,8 @@ def cmd_upload(root: Path, shops, do_submit=True):
                         except Exception as e:
                             tries += 1
                             failed_at = publish_mod.LAST_STEP
-                            if tries > 3 or STOP.is_set() or failed_at == "提交":
+                            # 文件找不到重来也没用，直接算失败
+                            if tries > 3 or STOP.is_set() or failed_at == "提交" or isinstance(e, FileNotFoundError):
                                 raise
                             msg = str(e).split("\nCall log")[0].strip()
                             page = current_page(ctx, page)
