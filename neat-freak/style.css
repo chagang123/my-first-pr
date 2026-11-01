@@ -1,0 +1,255 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* 纸张底色 + 黑字，唯一的强调色是红笔色，只用在「歪」的地方 */
+:root {
+  --paper: #f3efe6;
+  --ink: #1c1c1e;
+  --ink-2: #6f6a60;
+  --line: #ddd6c8;
+  --soft: #e9e3d6;
+  --red: #e5432d;
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --top-inset: var(--safe-top);
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --num: "DIN Alternate", "Helvetica Neue", -apple-system, "Roboto", sans-serif;
+}
+
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--paper); }
+
+body {
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+               "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+button:active { opacity: 0.7; }
+
+svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+svg .dot { fill: currentColor; stroke: none; }
+
+.hidden { display: none !important; }
+
+.screen { position: absolute; left: 0; right: 0; top: 0; bottom: 0; }
+
+.btn-main {
+  display: block;
+  width: 100%;
+  height: 58px;
+  border-radius: 29px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 3px;
+}
+.btn-main[disabled] { opacity: 0.5; }
+
+.btn-text { display: block; width: 100%; height: 44px; margin-top: 4px; font-size: 15px; color: var(--ink-2); }
+
+.round {
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
+  border: 1.5px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 42px;
+}
+.round svg { width: 21px; height: 21px; }
+
+/* ---------- 首页 ---------- */
+#hero-cv { position: absolute; left: 0; top: 0; display: block; }
+
+.home-top { position: absolute; left: 28px; right: 28px; top: calc(var(--top-inset) + 34px); }
+.home-top h1 { font-size: 76px; line-height: 1.02; font-weight: 900; letter-spacing: 2px; }
+.home-top h1 span { display: block; }
+
+/* 故意歪着的「死」，点一下会摆正，过一会儿又歪回去 */
+#crook {
+  display: inline-block;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  color: var(--red);
+  -webkit-transform: translate(4px, 8px) rotate(13deg);
+  transform: translate(4px, 8px) rotate(13deg);
+  -webkit-transition: -webkit-transform .35s cubic-bezier(.3, 1.6, .5, 1), color .35s;
+  transition: transform .35s cubic-bezier(.3, 1.6, .5, 1), color .35s;
+}
+#crook.fixed { -webkit-transform: none; transform: none; color: var(--ink); }
+#crook:active { opacity: 1; }
+
+.home-top p { margin-top: 16px; font-size: 16px; font-weight: 600; color: var(--ink-2); }
+
+.home-panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 0 28px;
+  padding-bottom: calc(16px + var(--safe-bottom));
+}
+#home-best { margin-bottom: 14px; text-align: center; font-size: 14px; color: var(--ink-2); }
+#home-best b { color: var(--ink); }
+
+.home-nav { display: flex; margin-top: 18px; }
+.home-nav button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.home-nav svg { width: 26px; height: 26px; margin-bottom: 5px; color: var(--ink); }
+.home-nav .mute { display: none; }
+.home-nav .muted .wave { display: none; }
+.home-nav .muted .mute { display: inline; }
+.home-nav .followed .plus { display: none; }
+
+/* ---------- 游戏页 ---------- */
+#bar {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  padding-top: var(--top-inset);
+  height: calc(64px + var(--top-inset));
+}
+#bar .round + .round { margin-left: 8px; }
+.bar-mid { flex: 1; padding-left: 12px; }
+#level { font-size: 17px; font-weight: 900; }
+#progress { margin-top: 2px; font-size: 12px; color: var(--ink-2); }
+#btn-hint.pulse { border-color: var(--red); color: var(--red); }
+
+#stage { position: absolute; left: 0; right: 0; top: 0; bottom: 0; touch-action: none; }
+#cv { position: absolute; left: 0; top: 0; display: block; }
+
+#tip {
+  position: absolute;
+  left: 24px; right: 24px;
+  bottom: calc(18px + var(--safe-bottom));
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  pointer-events: none;
+}
+
+/* ---------- 结算 ---------- */
+#overlay {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+#sheet {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: #fffdf8;
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.12);
+  padding: 26px 26px 0;
+  padding-bottom: calc(10px + var(--safe-bottom));
+  -webkit-animation: rise .35s cubic-bezier(.2, .9, .3, 1);
+  animation: rise .35s cubic-bezier(.2, .9, .3, 1);
+}
+@-webkit-keyframes rise { from { -webkit-transform: translateY(100%); } to { -webkit-transform: none; } }
+@keyframes rise { from { transform: translateY(100%); } to { transform: none; } }
+
+#r-kicker { font-size: 13px; font-weight: 700; color: var(--ink-2); letter-spacing: 1px; }
+#r-title { margin-top: 2px; font-size: 40px; font-weight: 900; letter-spacing: 2px; }
+#r-sub { margin-top: 4px; font-size: 15px; color: var(--ink-2); }
+.r-time { display: flex; align-items: baseline; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+#r-num { font-family: var(--num); font-size: 46px; font-weight: 700; line-height: 1; }
+.r-time span { margin-left: 6px; font-size: 15px; font-weight: 700; }
+#r-best { margin-left: auto; font-style: normal; font-size: 13px; color: var(--ink-2); }
+#r-best b { color: var(--red); }
+#r-main { margin-top: 20px; }
+.r-links { display: flex; justify-content: center; margin-top: 6px; }
+.r-links button { padding: 12px 14px; font-size: 14px; font-weight: 700; color: var(--ink-2); }
+.r-links button + button { border-left: 1px solid var(--line); }
+
+/* ---------- 弹框 ---------- */
+#dialog {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 15;
+  background: rgba(28, 28, 30, 0.4);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+#dlg-box {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: #fffdf8;
+  border-radius: 24px 24px 0 0;
+  padding: 26px 24px 0;
+  padding-bottom: calc(10px + var(--safe-bottom));
+  -webkit-animation: rise .3s cubic-bezier(.2, .9, .3, 1);
+  animation: rise .3s cubic-bezier(.2, .9, .3, 1);
+}
+#dlg-kicker { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+#dlg-title { margin-top: 2px; font-size: 26px; font-weight: 900; }
+#dlg-body { margin-top: 10px; font-size: 15px; line-height: 1.7; color: #3a3832; }
+#dlg-body ol { padding-left: 1.2em; }
+#dlg-body li + li { margin-top: 6px; }
+#dlg-main { margin-top: 22px; height: 54px; font-size: 17px; }
+
+/* 选关 */
+.lv-grid { display: flex; flex-wrap: wrap; margin: 6px -4px 0; }
+.lv-grid button {
+  width: calc(25% - 8px);
+  margin: 4px;
+  height: 62px;
+  border-radius: 12px;
+  background: var(--soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--num);
+  font-size: 20px;
+  font-weight: 700;
+}
+.lv-grid button small { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 11px; font-weight: 600; color: var(--ink-2); margin-top: 2px; }
+.lv-grid button.current { background: var(--ink); color: var(--paper); }
+.lv-grid button.current small { color: rgba(243, 239, 230, 0.7); }
+.lv-grid button.locked { background: transparent; border: 1.5px dashed var(--line); color: #bdb5a5; }
+.lv-grid button.locked small { color: #bdb5a5; }
+/* 没解锁的格子故意歪一点 */
+.lv-grid button.locked:nth-child(odd) { -webkit-transform: rotate(-4deg); transform: rotate(-4deg); }
+.lv-grid button.locked:nth-child(even) { -webkit-transform: rotate(3deg); transform: rotate(3deg); }
+
+#toast {
+  position: fixed;
+  left: 50%;
+  top: 38%;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+  max-width: 80%;
+  padding: 11px 18px;
+  border-radius: 22px;
+  background: rgba(28, 28, 30, 0.9);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  z-index: 20;
+}
