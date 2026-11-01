@@ -589,8 +589,14 @@ let w, h, particles = [];
 let cx, cy;
 
 function resize() {
-  w = canvas.width = window.innerWidth;
-  h = canvas.height = window.innerHeight * 3;
+  const dpr = window.devicePixelRatio || 1;
+  w = window.innerWidth;
+  h = window.innerHeight * 3;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx = w / 2;
   cy = h / 2;
 }
