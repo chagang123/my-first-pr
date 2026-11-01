@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>西藏天珠 — Legend of Dzi</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -13,7 +13,8 @@ body {
   color: #e8dcc8;
   font-family: 'Orbitron', 'Segoe UI', 'Microsoft YaHei', sans-serif;
   overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -103,7 +104,7 @@ canvas#stars {
 }
 
 .hero-title {
-  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: clamp(64px, 12vw, 140px);
   font-weight: 900;
   letter-spacing: .08em;
