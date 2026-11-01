@@ -4,18 +4,55 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>西藏天珠 — Legend of Dzi</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   background: #050505;
   color: #e8dcc8;
-  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-family: 'Orbitron', 'Segoe UI', 'Microsoft YaHei', sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 a { color: inherit; text-decoration: none; }
+
+/* ══════ 开场动画 ══════ */
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #050505;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity .6s ease;
+}
+.splash.fade-out { opacity: 0; pointer-events: none; }
+
+.splash-title {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(32px, 6vw, 64px);
+  font-weight: 700;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #f0c56e 0%, #d08030 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 16px;
+}
+
+.splash-sub {
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(11px, 1.5vw, 16px);
+  font-weight: 400;
+  letter-spacing: .2em;
+  color: rgba(220, 190, 140, .5);
+  font-style: italic;
+}
 
 /* ══════ 星空画布 ══════ */
 canvas#stars {
@@ -26,6 +63,13 @@ canvas#stars {
   z-index: 0;
   pointer-events: none;
 }
+
+/* ══════ 主内容（开场动画结束后显示） ══════ */
+.main-content {
+  opacity: 0;
+  transition: opacity .5s ease;
+}
+.main-content.visible { opacity: 1; }
 
 /* ══════ 第一屏：Hero ══════ */
 .hero {
@@ -58,6 +102,7 @@ canvas#stars {
 }
 
 .hero-title {
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: clamp(64px, 12vw, 140px);
   font-weight: 900;
   letter-spacing: .08em;
@@ -77,10 +122,11 @@ canvas#stars {
 }
 
 .hero-subtitle {
-  font-size: clamp(13px, 1.8vw, 18px);
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(12px, 1.6vw, 16px);
   letter-spacing: .35em;
-  color: rgba(220, 190, 140, .6);
-  font-weight: 300;
+  color: rgba(220, 190, 140, .5);
+  font-weight: 400;
   margin-bottom: 48px;
 }
 
@@ -95,17 +141,18 @@ canvas#stars {
   display: inline-block;
   padding: 14px 44px;
   border-radius: 40px;
-  font-size: 13px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .18em;
   text-transform: uppercase;
   transition: all .3s;
   cursor: pointer;
+  border: none;
 }
 .btn-solid {
   background: linear-gradient(135deg, #e87830, #f09040);
   color: #fff;
-  border: none;
   box-shadow: 0 4px 24px rgba(232, 120, 48, .3);
 }
 .btn-solid:hover {
@@ -143,7 +190,8 @@ canvas#stars {
 }
 
 .showcase-title {
-  font-size: clamp(36px, 6vw, 72px);
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(32px, 5vw, 64px);
   font-weight: 800;
   letter-spacing: .06em;
   line-height: 1.15;
@@ -185,25 +233,26 @@ canvas#stars {
   background: rgba(255, 255, 255, .04);
 }
 .card-title {
-  font-size: clamp(14px, 1.6vw, 18px);
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(12px, 1.4vw, 16px);
   font-weight: 700;
-  letter-spacing: .12em;
+  letter-spacing: .1em;
   text-transform: uppercase;
   color: rgba(230, 200, 140, .85);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 .card-arrow {
   font-size: 12px;
   color: rgba(230, 200, 140, .4);
 }
 
-/* ══════ 弹窗（二级菜单） ══════ */
+/* ══════ 弹窗 ══════ */
 .modal-overlay {
   display: none;
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(5, 5, 5, .75);
+  background: rgba(5, 5, 5, .8);
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -214,12 +263,14 @@ canvas#stars {
   position: relative;
   width: 100%;
   max-width: 680px;
-  border: 1px solid rgba(180, 150, 100, .25);
+  border: 1px solid rgba(210, 160, 60, .35);
   border-radius: 16px;
   background: rgba(20, 18, 14, .95);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 0 60px rgba(200, 150, 60, .08);
+  box-shadow:
+    0 0 1px rgba(210, 160, 60, .5),
+    0 0 30px rgba(200, 150, 60, .06);
   padding: 40px 36px 36px;
   animation: modalIn .25s ease;
 }
@@ -229,7 +280,8 @@ canvas#stars {
 }
 
 .modal-title {
-  font-size: 22px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 20px;
   font-weight: 800;
   font-style: italic;
   letter-spacing: .1em;
@@ -245,12 +297,13 @@ canvas#stars {
   position: absolute;
   top: 16px;
   right: 20px;
-  font-size: 20px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
   color: rgba(200, 180, 140, .5);
   cursor: pointer;
   background: none;
   border: none;
-  font-family: inherit;
   padding: 4px 8px;
   transition: color .2s;
 }
@@ -272,10 +325,17 @@ canvas#stars {
 .modal-item:last-child { margin-bottom: 0; }
 
 .modal-item-text {
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: 15px;
   font-weight: 500;
   letter-spacing: .06em;
   color: rgba(220, 200, 160, .85);
+}
+
+.modal-item-icon {
+  font-size: 14px;
+  margin-right: 10px;
+  flex-shrink: 0;
 }
 
 .modal-item-arrow {
@@ -304,7 +364,8 @@ canvas#stars {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 12px;
   letter-spacing: .1em;
   color: rgba(220, 180, 120, .6);
   cursor: pointer;
@@ -312,12 +373,12 @@ canvas#stars {
   transition: color .2s;
   background: none;
   border: none;
-  font-family: inherit;
 }
 .landing-back:hover { color: rgba(230, 200, 140, .9); }
 
 .landing-category {
-  font-size: 12px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
   letter-spacing: .25em;
   text-transform: uppercase;
   color: rgba(220, 180, 120, .4);
@@ -325,6 +386,7 @@ canvas#stars {
 }
 
 .landing-title {
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: clamp(28px, 5vw, 42px);
   font-weight: 800;
   letter-spacing: .06em;
@@ -341,7 +403,8 @@ canvas#stars {
 }
 
 .landing-label {
-  font-size: 11px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
   letter-spacing: .2em;
   text-transform: uppercase;
   color: rgba(220, 180, 120, .5);
@@ -356,7 +419,7 @@ canvas#stars {
   border-radius: 10px;
   background: rgba(255, 255, 255, .03);
   color: #e8dcc8;
-  font-family: inherit;
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   font-size: 14px;
   line-height: 1.7;
   resize: vertical;
@@ -370,22 +433,6 @@ canvas#stars {
   color: rgba(200, 180, 140, .3);
 }
 
-.landing-input {
-  width: 100%;
-  padding: 14px 18px;
-  border: 1px solid rgba(180, 150, 100, .15);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .03);
-  color: #e8dcc8;
-  font-family: inherit;
-  font-size: 14px;
-  transition: border-color .3s;
-}
-.landing-input:focus {
-  outline: none;
-  border-color: rgba(220, 170, 80, .4);
-}
-
 /* ══════ Footer ══════ */
 .footer {
   position: relative;
@@ -394,7 +441,8 @@ canvas#stars {
   padding: 0 40px 60px;
 }
 .footer-domain {
-  font-size: clamp(28px, 4vw, 48px);
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(24px, 3.5vw, 44px);
   font-weight: 700;
   background: linear-gradient(180deg, #e8b860, #c88030);
   -webkit-background-clip: text;
@@ -403,7 +451,8 @@ canvas#stars {
   margin-bottom: 8px;
 }
 .footer-copy {
-  font-size: 11px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
   letter-spacing: .25em;
   color: rgba(180, 160, 120, .4);
   text-transform: uppercase;
@@ -416,9 +465,9 @@ canvas#stars {
     gap: 12px;
   }
   .showcase { padding: 60px 24px; }
-  .btn { padding: 12px 32px; font-size: 12px; }
+  .btn { padding: 12px 32px; font-size: 11px; }
   .modal-box { padding: 32px 24px 28px; }
-  .modal-title { font-size: 18px; }
+  .modal-title { font-size: 16px; }
   .landing-inner { padding: 40px 20px 60px; }
 }
 @media (max-width: 480px) {
@@ -437,15 +486,23 @@ canvas#stars {
      三级落地页里的文本框也可以直接编辑
      ============================ -->
 
+<!-- 开场动画 -->
+<div class="splash" id="splash">
+  <div class="splash-title">LEGEND OF DZI</div>         <!-- ← 开场标题 -->
+  <div class="splash-sub">From the sacred Himalayas</div> <!-- ← 开场副标题 -->
+</div>
+
 <canvas id="stars"></canvas>
+
+<div class="main-content" id="mainContent">
 
 <!-- 第一屏 -->
 <section class="hero">
   <h1 class="hero-title">西藏天珠</h1>                    <!-- ← 主标题 -->
   <p class="hero-subtitle">LEGEND OF DZI</p>              <!-- ← 副标题 -->
   <div class="hero-buttons">
-    <a href="#contact" class="btn btn-solid">CONTACT</a>          <!-- ← 按钮1 -->
-    <a href="#showcase" class="btn btn-solid">ENTER SHOWCASE</a>  <!-- ← 按钮2 -->
+    <button class="btn btn-solid" onclick="openHeroModal('contact')">CONTACT</button>          <!-- ← 按钮1 -->
+    <button class="btn btn-solid" onclick="openHeroModal('showcase')">ENTER SHOWCASE</button>  <!-- ← 按钮2 -->
   </div>
   <div class="scroll-hint"></div>
 </section>
@@ -482,10 +539,18 @@ canvas#stars {
   </div>
 </section>
 
-<!-- 弹窗：二级菜单 -->
+<!-- 底部 -->
+<footer class="footer" id="contact">
+  <div class="footer-domain">Legendofdzi.com</div>         <!-- ← 域名 -->
+  <div class="footer-copy">&copy; 2026 IMMERSIVE SHOWCASE SYSTEM</div> <!-- ← 版权 -->
+</footer>
+
+</div><!-- /main-content -->
+
+<!-- 弹窗：通用 -->
 <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
   <div class="modal-box" onclick="event.stopPropagation()">
-    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <button class="modal-close" onclick="closeModal()">X</button>
     <div class="modal-title" id="modalTitle"></div>
     <div id="modalItems"></div>
   </div>
@@ -494,20 +559,25 @@ canvas#stars {
 <!-- 落地页：三级内容 -->
 <div class="landing-overlay" id="landingOverlay">
   <div class="landing-inner">
-    <button class="landing-back" onclick="closeLanding()">◁ BACK</button>  <!-- ← 返回按钮文字 -->
+    <button class="landing-back" onclick="closeLanding()">◁ BACK</button>
     <div class="landing-category" id="landingCategory"></div>
     <div class="landing-title" id="landingTitle"></div>
     <div id="landingContent"></div>
   </div>
 </div>
 
-<!-- 底部 -->
-<footer class="footer" id="contact">
-  <div class="footer-domain">Legendofdzi.com</div>         <!-- ← 域名 -->
-  <div class="footer-copy">&copy; 2026 IMMERSIVE SHOWCASE SYSTEM</div> <!-- ← 版权 -->
-</footer>
-
 <script>
+// ══════ 开场动画 ══════
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    document.getElementById('splash').classList.add('fade-out');
+    document.getElementById('mainContent').classList.add('visible');
+  }, 1200);
+  setTimeout(() => {
+    document.getElementById('splash').style.display = 'none';
+  }, 1800);
+});
+
 // ══════ 星空粒子 ══════
 const canvas = document.getElementById('stars');
 const ctx = canvas.getContext('2d');
@@ -556,25 +626,46 @@ resize();
 createParticles();
 draw();
 
-// ══════ 菜单数据 ══════
+// ══════ Hero 按钮弹窗数据 ══════
+// ← 编辑联系方式和入口介绍
+const heroModals = {
+  contact: {
+    title: 'CONTACT',                                    // ← 联系弹窗标题
+    items: [
+      { icon: '✉', text: 'regal001@hotmail.com' },       // ← 邮箱
+      { icon: '🌐', text: 'Topdonor' },                  // ← 社交账号
+      { icon: '📍', text: 'www.Legendofdzi.com' },        // ← 网站
+      { icon: '◉', text: 'Energy · Destiny · Protection' } // ← 标语
+    ]
+  },
+  showcase: {
+    title: 'SHOWCASE ENTRY',                              // ← 展馆弹窗标题
+    items: [
+      { icon: '', text: '欢迎进入天珠展馆系统' },            // ← 展馆介绍1
+      { icon: '', text: '这是一个关于能量、信仰与结构的沉浸空间' } // ← 展馆介绍2
+    ]
+  }
+};
+
+// ══════ 卡片菜单数据 ══════
 // ← 在这里编辑所有菜单内容
 const menuData = [
   {
-    title: 'ORIGIN RELIC',                           // ← 卡片1标题
+    title: 'ORIGIN RELIC',
     subs: [
       {
-        name: '喜马拉雅文明遗存',                       // ← 二级菜单1
+        name: '喜马拉雅文明遗存',
         landing: {
-          heading: '喜马拉雅文明遗存',                  // ← 三级页标题
+          heading: '喜马拉雅文明遗存',
           sections: [
-            { label: 'INTRODUCTION', text: 'Dzi beads are ancient etched agate beads of mysterious origin. They have been found primarily in Tibet, though they can also be found in neighboring Himalayan regions.' },                    // ← 三级内容
-            { label: 'HISTORY', text: 'The earliest Dzi beads date back over 2,000 years to the ancient Indus Valley civilization. Their exact origin remains one of archaeology\'s great mysteries.' },      // ← 三级内容
-            { label: 'SIGNIFICANCE', text: 'In Tibetan culture, Dzi beads are considered to be among the most precious and sacred objects. They are believed to bring good fortune, protection, and spiritual power to the wearer.' }  // ← 三级内容
+            { label: 'INTRODUCTION', text: 'Dzi beads are ancient etched agate beads of mysterious origin. They have been found primarily in Tibet, though they can also be found in neighboring Himalayan regions.' },
+            { label: 'HISTORY', text: 'The earliest Dzi beads date back over 2,000 years to the ancient Indus Valley civilization. Their exact origin remains one of archaeology\'s great mysteries.' },
+            { label: 'SIGNIFICANCE', text: 'In Tibetan culture, Dzi beads are considered to be among the most precious and sacred objects. They are believed to bring good fortune, protection, and spiritual power to the wearer.' }
           ]
         }
       },
       {
-        name: '被视为天地能量结晶',                       // ← 二级菜单2
+        name: '被视为天地能量结晶',
         landing: {
           heading: '被视为天地能量结晶',
           sections: [
@@ -585,7 +676,7 @@ const menuData = [
         }
       },
       {
-        name: '神秘起源传说',                           // ← 二级菜单3
+        name: '神秘起源传说',
         landing: {
           heading: '神秘起源传说',
           sections: [
@@ -597,10 +688,10 @@ const menuData = [
     ]
   },
   {
-    title: 'EYE CODE SYSTEM',                         // ← 卡片2标题
+    title: 'EYE CODE SYSTEM',
     subs: [
       {
-        name: '天珠眼纹图谱',                           // ← 二级菜单1
+        name: '天珠眼纹图谱',
         landing: {
           heading: '天珠眼纹图谱',
           sections: [
@@ -610,7 +701,7 @@ const menuData = [
         }
       },
       {
-        name: '符号密码解读',                            // ← 二级菜单2
+        name: '符号密码解读',
         landing: {
           heading: '符号密码解读',
           sections: [
@@ -620,7 +711,7 @@ const menuData = [
         }
       },
       {
-        name: '珍稀版本收藏',                            // ← 二级菜单3
+        name: '珍稀版本收藏',
         landing: {
           heading: '珍稀版本收藏',
           sections: [
@@ -632,10 +723,10 @@ const menuData = [
     ]
   },
   {
-    title: 'PROTECTION FIELD',                        // ← 卡片3标题
+    title: 'PROTECTION FIELD',
     subs: [
       {
-        name: '灵性护盾之力',                            // ← 二级菜单1
+        name: '灵性护盾之力',
         landing: {
           heading: '灵性护盾之力',
           sections: [
@@ -645,7 +736,7 @@ const menuData = [
         }
       },
       {
-        name: '健康平衡能量',                            // ← 二级菜单2
+        name: '健康平衡能量',
         landing: {
           heading: '健康平衡能量',
           sections: [
@@ -655,7 +746,7 @@ const menuData = [
         }
       },
       {
-        name: '财运福泽加持',                            // ← 二级菜单3
+        name: '财运福泽加持',
         landing: {
           heading: '财运福泽加持',
           sections: [
@@ -667,10 +758,10 @@ const menuData = [
     ]
   },
   {
-    title: 'ENERGY UNIVERSE',                         // ← 卡片4标题
+    title: 'ENERGY UNIVERSE',
     subs: [
       {
-        name: '宇宙频率共振',                            // ← 二级菜单1
+        name: '宇宙频率共振',
         landing: {
           heading: '宇宙频率共振',
           sections: [
@@ -680,7 +771,7 @@ const menuData = [
         }
       },
       {
-        name: '磁场能量检测',                            // ← 二级菜单2
+        name: '磁场能量检测',
         landing: {
           heading: '磁场能量检测',
           sections: [
@@ -690,7 +781,7 @@ const menuData = [
         }
       },
       {
-        name: '冥想修行指引',                            // ← 二级菜单3
+        name: '冥想修行指引',
         landing: {
           heading: '冥想修行指引',
           sections: [
@@ -705,9 +796,34 @@ const menuData = [
 
 // ══════ 弹窗逻辑 ══════
 let currentCardIndex = -1;
+let currentModalType = '';
+
+function openHeroModal(type) {
+  currentModalType = type;
+  currentCardIndex = -1;
+  const data = heroModals[type];
+  document.getElementById('modalTitle').textContent = data.title;
+
+  const container = document.getElementById('modalItems');
+  container.innerHTML = '';
+  data.items.forEach(item => {
+    const el = document.createElement('div');
+    el.className = 'modal-item';
+    el.style.cursor = 'default';
+    el.innerHTML = `
+      ${item.icon ? '<span class="modal-item-icon">' + item.icon + '</span>' : ''}
+      <span class="modal-item-text">${item.text}</span>
+    `;
+    container.appendChild(el);
+  });
+
+  document.getElementById('modalOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
 
 function openModal(cardIndex) {
   currentCardIndex = cardIndex;
+  currentModalType = 'card';
   const data = menuData[cardIndex];
   document.getElementById('modalTitle').textContent = data.title;
 
@@ -763,6 +879,7 @@ function openLanding(cardIndex, subIndex) {
 function closeLanding() {
   document.getElementById('landingOverlay').classList.remove('active');
   if (currentCardIndex >= 0) openModal(currentCardIndex);
+  else document.body.style.overflow = '';
 }
 
 document.addEventListener('keydown', e => {
