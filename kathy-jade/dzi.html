@@ -7,11 +7,6 @@
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-@font-face {
-  font-family: 'DziTitle';
-  src: local('Microsoft YaHei'), local('PingFang SC'), local('Noto Sans SC');
-}
-
 body {
   background: #050505;
   color: #e8dcc8;
@@ -45,7 +40,6 @@ canvas#stars {
   padding: 40px 24px;
 }
 
-/* 中心光晕 */
 .hero::before {
   content: '';
   position: absolute;
@@ -119,7 +113,6 @@ canvas#stars {
   transform: translateY(-1px);
 }
 
-/* 底部滚动提示 */
 .scroll-hint {
   position: absolute;
   bottom: 36px;
@@ -181,18 +174,15 @@ canvas#stars {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   transition: border-color .3s, background .3s;
-  overflow: hidden;
-}
-.card:hover, .card.open {
-  border-color: rgba(220, 170, 80, .4);
-  background: rgba(255, 255, 255, .04);
-}
-.card-header {
-  padding: 32px 24px;
   cursor: pointer;
+  padding: 32px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.card:hover {
+  border-color: rgba(220, 170, 80, .4);
+  background: rgba(255, 255, 255, .04);
 }
 .card-title {
   font-size: clamp(14px, 1.6vw, 18px);
@@ -205,66 +195,195 @@ canvas#stars {
 .card-arrow {
   font-size: 12px;
   color: rgba(230, 200, 140, .4);
-  transition: transform .3s;
 }
-.card.open .card-arrow { transform: rotate(90deg); }
 
-/* ── 二级菜单 ── */
-.card-sub {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height .4s ease;
+/* ══════ 弹窗（二级菜单） ══════ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(5, 5, 5, .75);
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
-.card.open .card-sub { max-height: 800px; }
+.modal-overlay.active { display: flex; }
 
-.sub-item {
-  border-top: 1px solid rgba(180, 150, 100, .1);
+.modal-box {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  border: 1px solid rgba(180, 150, 100, .25);
+  border-radius: 16px;
+  background: rgba(20, 18, 14, .95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 0 60px rgba(200, 150, 60, .08);
+  padding: 40px 36px 36px;
+  animation: modalIn .25s ease;
 }
-.sub-header {
-  padding: 14px 24px 14px 36px;
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(.96) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-title {
+  font-size: 22px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #f0c56e 0%, #d08030 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 28px;
+}
+
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  font-size: 20px;
+  color: rgba(200, 180, 140, .5);
   cursor: pointer;
+  background: none;
+  border: none;
+  font-family: inherit;
+  padding: 4px 8px;
+  transition: color .2s;
+}
+.modal-close:hover { color: rgba(230, 200, 140, .9); }
+
+.modal-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 16px 20px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: rgba(30, 28, 22, .8);
+  border-left: 3px solid #e87830;
+  cursor: pointer;
   transition: background .2s;
 }
-.sub-header:hover { background: rgba(255, 255, 255, .03); }
-.sub-title {
-  font-size: 13px;
+.modal-item:hover { background: rgba(50, 45, 35, .8); }
+.modal-item:last-child { margin-bottom: 0; }
+
+.modal-item-text {
+  font-size: 15px;
   font-weight: 500;
-  letter-spacing: .08em;
-  color: rgba(220, 200, 160, .7);
+  letter-spacing: .06em;
+  color: rgba(220, 200, 160, .85);
 }
-.sub-arrow {
-  font-size: 10px;
-  color: rgba(220, 200, 160, .3);
-  transition: transform .3s;
-}
-.sub-item.open .sub-arrow { transform: rotate(90deg); }
 
-/* ── 三级菜单 ── */
-.sub-sub {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height .3s ease;
+.modal-item-arrow {
+  font-size: 11px;
+  color: rgba(220, 200, 160, .4);
 }
-.sub-item.open .sub-sub { max-height: 400px; }
 
-.sub-sub-item {
-  display: block;
-  padding: 10px 24px 10px 52px;
-  font-size: 12px;
-  letter-spacing: .05em;
-  color: rgba(200, 180, 140, .5);
-  transition: color .2s, background .2s;
+/* ══════ 落地页（三级） ══════ */
+.landing-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #050505;
+  overflow-y: auto;
+}
+.landing-overlay.active { display: block; }
+
+.landing-inner {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 60px 32px 80px;
+}
+
+.landing-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: .1em;
+  color: rgba(220, 180, 120, .6);
   cursor: pointer;
+  margin-bottom: 40px;
+  transition: color .2s;
+  background: none;
+  border: none;
+  font-family: inherit;
 }
-.sub-sub-item:hover {
-  color: rgba(230, 200, 140, .9);
-  background: rgba(255, 255, 255, .02);
+.landing-back:hover { color: rgba(230, 200, 140, .9); }
+
+.landing-category {
+  font-size: 12px;
+  letter-spacing: .25em;
+  text-transform: uppercase;
+  color: rgba(220, 180, 120, .4);
+  margin-bottom: 12px;
 }
-.sub-item:last-child .sub-sub-item:last-child {
-  padding-bottom: 16px;
+
+.landing-title {
+  font-size: clamp(28px, 5vw, 42px);
+  font-weight: 800;
+  letter-spacing: .06em;
+  background: linear-gradient(180deg, #f0c56e 0%, #d08030 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 36px;
+  line-height: 1.2;
+}
+
+.landing-section {
+  margin-bottom: 28px;
+}
+
+.landing-label {
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(220, 180, 120, .5);
+  margin-bottom: 10px;
+}
+
+.landing-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 16px 18px;
+  border: 1px solid rgba(180, 150, 100, .15);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .03);
+  color: #e8dcc8;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.7;
+  resize: vertical;
+  transition: border-color .3s;
+}
+.landing-textarea:focus {
+  outline: none;
+  border-color: rgba(220, 170, 80, .4);
+}
+.landing-textarea::placeholder {
+  color: rgba(200, 180, 140, .3);
+}
+
+.landing-input {
+  width: 100%;
+  padding: 14px 18px;
+  border: 1px solid rgba(180, 150, 100, .15);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .03);
+  color: #e8dcc8;
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color .3s;
+}
+.landing-input:focus {
+  outline: none;
+  border-color: rgba(220, 170, 80, .4);
 }
 
 /* ══════ Footer ══════ */
@@ -298,6 +417,9 @@ canvas#stars {
   }
   .showcase { padding: 60px 24px; }
   .btn { padding: 12px 32px; font-size: 12px; }
+  .modal-box { padding: 32px 24px 28px; }
+  .modal-title { font-size: 18px; }
+  .landing-inner { padding: 40px 20px 60px; }
 }
 @media (max-width: 480px) {
   .cards { grid-template-columns: 1fr; }
@@ -309,8 +431,10 @@ canvas#stars {
 <body>
 
 <!-- ============================
-     ✦ 修改文字指南 ✦
+     修改文字指南
      找到下面带 ← 的地方，直接改文字就行
+     点击卡片弹出二级菜单，点击二级菜单进入三级落地页
+     三级落地页里的文本框也可以直接编辑
      ============================ -->
 
 <canvas id="stars"></canvas>
@@ -332,169 +456,50 @@ canvas#stars {
   <div class="cards">
 
     <!-- ═══ 卡片1 ═══ -->
-    <div class="card">
-      <div class="card-header" onclick="toggleCard(this)">
-        <div class="card-title">ORIGIN RELIC</div>                   <!-- ← 卡片1标题 -->
-        <span class="card-arrow">▶</span>
-      </div>
-      <div class="card-sub">
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Ancient Tibet</span>             <!-- ← 二级-1 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">History of Dzi</span>         <!-- ← 三级 -->
-            <span class="sub-sub-item">Sacred Origins</span>         <!-- ← 三级 -->
-            <span class="sub-sub-item">Mythology</span>              <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Myanmar Legacy</span>            <!-- ← 二级-2 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Mining Sites</span>           <!-- ← 三级 -->
-            <span class="sub-sub-item">Geological Formation</span>   <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Sacred Mountains</span>          <!-- ← 二级-3 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Mount Kailash</span>          <!-- ← 三级 -->
-            <span class="sub-sub-item">Pilgrimage Routes</span>      <!-- ← 三级 -->
-          </div>
-        </div>
-      </div>
+    <div class="card" onclick="openModal(0)">
+      <div class="card-title">ORIGIN RELIC</div>                   <!-- ← 卡片1标题 -->
+      <span class="card-arrow">▶</span>
     </div>
 
     <!-- ═══ 卡片2 ═══ -->
-    <div class="card">
-      <div class="card-header" onclick="toggleCard(this)">
-        <div class="card-title">EYE CODE<br>SYSTEM</div>             <!-- ← 卡片2标题 -->
-        <span class="card-arrow">▶</span>
-      </div>
-      <div class="card-sub">
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Eye Patterns</span>              <!-- ← 二级-1 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">One-Eye Dzi</span>            <!-- ← 三级 -->
-            <span class="sub-sub-item">Two-Eye Dzi</span>            <!-- ← 三级 -->
-            <span class="sub-sub-item">Nine-Eye Dzi</span>           <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Decoding</span>                  <!-- ← 二级-2 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Symbol Meanings</span>        <!-- ← 三级 -->
-            <span class="sub-sub-item">Spiritual Geometry</span>     <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Rare Editions</span>             <!-- ← 二级-3 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Collector Series</span>       <!-- ← 三级 -->
-            <span class="sub-sub-item">Museum Archive</span>         <!-- ← 三级 -->
-          </div>
-        </div>
-      </div>
+    <div class="card" onclick="openModal(1)">
+      <div class="card-title">EYE CODE<br>SYSTEM</div>             <!-- ← 卡片2标题 -->
+      <span class="card-arrow">▶</span>
     </div>
 
     <!-- ═══ 卡片3 ═══ -->
-    <div class="card">
-      <div class="card-header" onclick="toggleCard(this)">
-        <div class="card-title">PROTECTION<br>FIELD</div>            <!-- ← 卡片3标题 -->
-        <span class="card-arrow">▶</span>
-      </div>
-      <div class="card-sub">
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Spiritual Shield</span>          <!-- ← 二级-1 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Warding Power</span>          <!-- ← 三级 -->
-            <span class="sub-sub-item">Blessing Rituals</span>       <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Health & Balance</span>          <!-- ← 二级-2 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Chakra Alignment</span>       <!-- ← 三级 -->
-            <span class="sub-sub-item">Healing Traditions</span>     <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Wealth & Fortune</span>          <!-- ← 二级-3 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Prosperity Stones</span>      <!-- ← 三级 -->
-            <span class="sub-sub-item">Business Talismans</span>     <!-- ← 三级 -->
-          </div>
-        </div>
-      </div>
+    <div class="card" onclick="openModal(2)">
+      <div class="card-title">PROTECTION<br>FIELD</div>            <!-- ← 卡片3标题 -->
+      <span class="card-arrow">▶</span>
     </div>
 
     <!-- ═══ 卡片4 ═══ -->
-    <div class="card">
-      <div class="card-header" onclick="toggleCard(this)">
-        <div class="card-title">ENERGY<br>UNIVERSE</div>             <!-- ← 卡片4标题 -->
-        <span class="card-arrow">▶</span>
-      </div>
-      <div class="card-sub">
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Cosmic Frequency</span>          <!-- ← 二级-1 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Vibration Theory</span>       <!-- ← 三级 -->
-            <span class="sub-sub-item">Resonance Testing</span>      <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Magnetic Field</span>            <!-- ← 二级-2 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Field Measurement</span>      <!-- ← 三级 -->
-            <span class="sub-sub-item">Scientific Research</span>    <!-- ← 三级 -->
-          </div>
-        </div>
-        <div class="sub-item">
-          <div class="sub-header" onclick="toggleSub(event,this)">
-            <span class="sub-title">Meditation</span>                <!-- ← 二级-3 -->
-            <span class="sub-arrow">▶</span>
-          </div>
-          <div class="sub-sub">
-            <span class="sub-sub-item">Practice Guide</span>         <!-- ← 三级 -->
-            <span class="sub-sub-item">Energy Channeling</span>      <!-- ← 三级 -->
-          </div>
-        </div>
-      </div>
+    <div class="card" onclick="openModal(3)">
+      <div class="card-title">ENERGY<br>UNIVERSE</div>             <!-- ← 卡片4标题 -->
+      <span class="card-arrow">▶</span>
     </div>
 
   </div>
 </section>
+
+<!-- 弹窗：二级菜单 -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <div class="modal-title" id="modalTitle"></div>
+    <div id="modalItems"></div>
+  </div>
+</div>
+
+<!-- 落地页：三级内容 -->
+<div class="landing-overlay" id="landingOverlay">
+  <div class="landing-inner">
+    <button class="landing-back" onclick="closeLanding()">◁ BACK</button>  <!-- ← 返回按钮文字 -->
+    <div class="landing-category" id="landingCategory"></div>
+    <div class="landing-title" id="landingTitle"></div>
+    <div id="landingContent"></div>
+  </div>
+</div>
 
 <!-- 底部 -->
 <footer class="footer" id="contact">
@@ -503,7 +508,7 @@ canvas#stars {
 </footer>
 
 <script>
-// 星空粒子
+// ══════ 星空粒子 ══════
 const canvas = document.getElementById('stars');
 const ctx = canvas.getContext('2d');
 let w, h, particles = [];
@@ -551,16 +556,224 @@ resize();
 createParticles();
 draw();
 
-// 菜单展开/收起
-function toggleCard(header) {
-  const card = header.parentElement;
-  card.classList.toggle('open');
+// ══════ 菜单数据 ══════
+// ← 在这里编辑所有菜单内容
+const menuData = [
+  {
+    title: 'ORIGIN RELIC',                           // ← 卡片1标题
+    subs: [
+      {
+        name: '喜马拉雅文明遗存',                       // ← 二级菜单1
+        landing: {
+          heading: '喜马拉雅文明遗存',                  // ← 三级页标题
+          sections: [
+            { label: 'INTRODUCTION', text: 'Dzi beads are ancient etched agate beads of mysterious origin. They have been found primarily in Tibet, though they can also be found in neighboring Himalayan regions.' },                    // ← 三级内容
+            { label: 'HISTORY', text: 'The earliest Dzi beads date back over 2,000 years to the ancient Indus Valley civilization. Their exact origin remains one of archaeology\'s great mysteries.' },      // ← 三级内容
+            { label: 'SIGNIFICANCE', text: 'In Tibetan culture, Dzi beads are considered to be among the most precious and sacred objects. They are believed to bring good fortune, protection, and spiritual power to the wearer.' }  // ← 三级内容
+          ]
+        }
+      },
+      {
+        name: '被视为天地能量结晶',                       // ← 二级菜单2
+        landing: {
+          heading: '被视为天地能量结晶',
+          sections: [
+            { label: 'OVERVIEW', text: 'The belief in the divine origin of Dzi beads persists throughout Tibetan and Himalayan cultures. Ancient texts describe them as crystallized energy from the heavens.' },
+            { label: 'SPIRITUAL POWER', text: 'Each Dzi bead is thought to harness cosmic energies, channeling them into protective and healing forces for the bearer.' },
+            { label: 'TRADITIONS', text: 'Generation after generation, Tibetan families pass Dzi beads as sacred heirlooms, preserving spiritual energy across lifetimes.' }
+          ]
+        }
+      },
+      {
+        name: '神秘起源传说',                           // ← 二级菜单3
+        landing: {
+          heading: '神秘起源传说',
+          sections: [
+            { label: 'LEGENDS', text: 'Multiple legends surround the origin of Dzi beads. Some say they fell from the sky as meteorites, others believe they were crafted by ancient gods.' },
+            { label: 'MYTHOLOGY', text: 'In Tibetan mythology, Dzi beads were once living insects that turned to stone when touched by human hands.' }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    title: 'EYE CODE SYSTEM',                         // ← 卡片2标题
+    subs: [
+      {
+        name: '天珠眼纹图谱',                           // ← 二级菜单1
+        landing: {
+          heading: '天珠眼纹图谱',
+          sections: [
+            { label: 'EYE PATTERNS', text: 'The number of eyes on a Dzi bead determines its meaning and power. From single-eye to the rare nine-eye, each pattern carries unique significance.' },
+            { label: 'CLASSIFICATION', text: 'Dzi beads are classified by the number, shape, and arrangement of their eye patterns, with each variation holding distinct spiritual meanings.' }
+          ]
+        }
+      },
+      {
+        name: '符号密码解读',                            // ← 二级菜单2
+        landing: {
+          heading: '符号密码解读',
+          sections: [
+            { label: 'SYMBOLS', text: 'Beyond eyes, Dzi beads feature various sacred symbols including lightning bolts, lotus flowers, and geometric patterns that encode spiritual knowledge.' },
+            { label: 'DECODING', text: 'Scholars and spiritual practitioners have developed systems for reading the symbolic language etched into genuine Dzi beads.' }
+          ]
+        }
+      },
+      {
+        name: '珍稀版本收藏',                            // ← 二级菜单3
+        landing: {
+          heading: '珍稀版本收藏',
+          sections: [
+            { label: 'RARE EDITIONS', text: 'Certain Dzi bead types are extraordinarily rare. The most valuable specimens command prices exceeding millions of dollars at auction.' },
+            { label: 'COLLECTOR GUIDE', text: 'Authentic ancient Dzi beads display specific weathering patterns, natural mineral deposits, and etching characteristics that distinguish them from reproductions.' }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    title: 'PROTECTION FIELD',                        // ← 卡片3标题
+    subs: [
+      {
+        name: '灵性护盾之力',                            // ← 二级菜单1
+        landing: {
+          heading: '灵性护盾之力',
+          sections: [
+            { label: 'PROTECTION', text: 'Dzi beads are traditionally worn as powerful protective talismans. Their spiritual energy is said to create an invisible shield around the wearer.' },
+            { label: 'RITUALS', text: 'Tibetan monks perform consecration ceremonies to activate the protective properties of Dzi beads, chanting mantras to awaken their guardian power.' }
+          ]
+        }
+      },
+      {
+        name: '健康平衡能量',                            // ← 二级菜单2
+        landing: {
+          heading: '健康平衡能量',
+          sections: [
+            { label: 'HEALING', text: 'In traditional Tibetan medicine, Dzi beads are associated with balancing the body\'s energy centers, promoting physical and mental well-being.' },
+            { label: 'BALANCE', text: 'The harmonizing properties of Dzi beads are believed to align the body\'s chakras, restoring equilibrium and vitality.' }
+          ]
+        }
+      },
+      {
+        name: '财运福泽加持',                            // ← 二级菜单3
+        landing: {
+          heading: '财运福泽加持',
+          sections: [
+            { label: 'PROSPERITY', text: 'Certain Dzi bead patterns, particularly those with multiple eyes, are associated with attracting wealth, good fortune, and business success.' },
+            { label: 'BLESSINGS', text: 'The spiritual blessings of Dzi beads extend to all areas of life, with different patterns supporting specific aspirations and goals.' }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    title: 'ENERGY UNIVERSE',                         // ← 卡片4标题
+    subs: [
+      {
+        name: '宇宙频率共振',                            // ← 二级菜单1
+        landing: {
+          heading: '宇宙频率共振',
+          sections: [
+            { label: 'FREQUENCY', text: 'Modern researchers have detected measurable electromagnetic frequencies emanating from genuine ancient Dzi beads, suggesting a scientific basis for their reputed power.' },
+            { label: 'RESONANCE', text: 'The unique mineral composition of Dzi beads may create natural resonance patterns that interact with the human body\'s bioelectric field.' }
+          ]
+        }
+      },
+      {
+        name: '磁场能量检测',                            // ← 二级菜单2
+        landing: {
+          heading: '磁场能量检测',
+          sections: [
+            { label: 'MEASUREMENT', text: 'Advanced instruments have been used to measure the magnetic field properties of Dzi beads, revealing patterns consistent with their traditional attributed powers.' },
+            { label: 'RESEARCH', text: 'Scientific studies continue to investigate the relationship between Dzi bead composition and their observed effects on the human nervous system.' }
+          ]
+        }
+      },
+      {
+        name: '冥想修行指引',                            // ← 二级菜单3
+        landing: {
+          heading: '冥想修行指引',
+          sections: [
+            { label: 'MEDITATION', text: 'Dzi beads are powerful meditation aids. Hold the bead in your palm during seated meditation to deepen your practice and enhance spiritual awareness.' },
+            { label: 'PRACTICE GUIDE', text: 'Begin with five minutes of focused breathing while holding your Dzi bead. Visualize golden light flowing from the bead through your energy channels.' }
+          ]
+        }
+      }
+    ]
+  }
+];
+
+// ══════ 弹窗逻辑 ══════
+let currentCardIndex = -1;
+
+function openModal(cardIndex) {
+  currentCardIndex = cardIndex;
+  const data = menuData[cardIndex];
+  document.getElementById('modalTitle').textContent = data.title;
+
+  const container = document.getElementById('modalItems');
+  container.innerHTML = '';
+  data.subs.forEach((sub, i) => {
+    const item = document.createElement('div');
+    item.className = 'modal-item';
+    item.onclick = () => openLanding(cardIndex, i);
+    item.innerHTML = `
+      <span class="modal-item-text">${sub.name}</span>
+      <span class="modal-item-arrow">▶</span>
+    `;
+    container.appendChild(item);
+  });
+
+  document.getElementById('modalOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
 }
-function toggleSub(e, header) {
-  e.stopPropagation();
-  const item = header.parentElement;
-  item.classList.toggle('open');
+
+function closeModal(e) {
+  if (e && e.target !== e.currentTarget && e.type === 'click') return;
+  document.getElementById('modalOverlay').classList.remove('active');
+  document.body.style.overflow = '';
 }
+
+// ══════ 落地页逻辑 ══════
+function openLanding(cardIndex, subIndex) {
+  const card = menuData[cardIndex];
+  const sub = card.subs[subIndex];
+  const landing = sub.landing;
+
+  document.getElementById('landingCategory').textContent = card.title;
+  document.getElementById('landingTitle').textContent = landing.heading;
+
+  const container = document.getElementById('landingContent');
+  container.innerHTML = '';
+  landing.sections.forEach(sec => {
+    const section = document.createElement('div');
+    section.className = 'landing-section';
+    section.innerHTML = `
+      <div class="landing-label">${sec.label}</div>
+      <textarea class="landing-textarea" placeholder="在此编辑内容…">${sec.text}</textarea>
+    `;
+    container.appendChild(section);
+  });
+
+  document.getElementById('modalOverlay').classList.remove('active');
+  document.getElementById('landingOverlay').classList.add('active');
+  document.getElementById('landingOverlay').scrollTop = 0;
+}
+
+function closeLanding() {
+  document.getElementById('landingOverlay').classList.remove('active');
+  if (currentCardIndex >= 0) openModal(currentCardIndex);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (document.getElementById('landingOverlay').classList.contains('active')) {
+      closeLanding();
+    } else if (document.getElementById('modalOverlay').classList.contains('active')) {
+      closeModal();
+    }
+  }
+});
 </script>
 </body>
 </html>
