@@ -1,486 +1,391 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>西藏天珠 — Legend of Dzi</title>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@900&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Noto+Serif+SC:wght@300;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <style>
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+*{margin:0;padding:0;box-sizing:border-box;}
 
-body {
-  background: #000;
-  color: #e8dcc8;
-  font-family: 'Orbitron', 'Segoe UI', 'Microsoft YaHei', sans-serif;
-  overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: geometricPrecision;
+body{
+  background:#000;
+  color:#fff;
+  font-family:'Orbitron',sans-serif;
+  overflow-x:hidden;
 }
 
-a { color: inherit; text-decoration: none; }
+a{color:inherit;text-decoration:none;}
 
-/* ══════ 开场动画 ══════ */
-.splash {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: #000;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  transition: opacity 1.8s ease;
-}
-.splash.fade-out { opacity: 0; pointer-events: none; }
-
-.splash-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(32px, 6vw, 64px);
-  font-weight: 700;
-  letter-spacing: .15em;
-  text-transform: uppercase;
-  background: linear-gradient(180deg, #ffe0a8 0%, #d4a050 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 16px;
-  text-shadow: 0 0 60px rgba(220, 170, 60, .2);
+canvas{
+  position:fixed;
+  inset:0;
+  z-index:-3;
 }
 
-.splash-sub {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(11px, 1.5vw, 16px);
-  font-weight: 400;
-  letter-spacing: .2em;
-  color: rgba(210, 195, 165, .5);
-  font-style: italic;
+body::before{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(255,180,120,.12), transparent 40%),
+    radial-gradient(circle at 70% 70%, rgba(255,90,40,.08), transparent 45%),
+    #000;
+  z-index:-4;
 }
 
-/* ══════ 星空画布 ══════ */
-canvas#stars {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-  pointer-events: none;
+/* ===== 开场动画 ===== */
+#intro{
+  position:fixed;
+  inset:0;
+  background:#000;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  z-index:999;
+  animation:fadeOut 4s ease forwards;
+  animation-delay:3s;
 }
 
-/* ══════ 主内容（开场动画结束后显示） ══════ */
-.main-content {
-  opacity: 0;
-  transition: opacity .5s ease;
-}
-.main-content.visible { opacity: 1; }
-
-/* ══════ 第一屏：Hero ══════ */
-.hero {
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 40px 24px;
+@keyframes fadeOut{
+  to{opacity:0;visibility:hidden;}
 }
 
-.hero::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -55%);
-  width: 700px;
-  height: 700px;
-  background: radial-gradient(
-    ellipse at center,
-    rgba(180, 150, 80, .03) 0%,
-    transparent 50%
-  );
-  pointer-events: none;
+.intro-title{
+  font-size:clamp(30px,6vw,80px);
+  letter-spacing:6px;
+  color:#ffb36b;
+  opacity:0;
+  animation:show 2s ease forwards;
 }
 
-.hero-title {
-  font-family: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  font-size: clamp(64px, 12vw, 140px);
-  font-weight: 900;
-  letter-spacing: .08em;
-  line-height: 1.1;
-  background: linear-gradient(
-    180deg,
-    #ffd78a 0%,
-    #f0b840 25%,
-    #d89520 55%,
-    #b87018 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 20px;
-  text-shadow: 0 0 40px rgba(240, 180, 60, .15);
-  paint-order: stroke fill;
-  -webkit-text-stroke: 0.5px rgba(200, 160, 60, .2);
+.intro-sub{
+  margin-top:10px;
+  color:#aaa;
+  opacity:0;
+  animation:show 2s ease forwards;
+  animation-delay:1s;
 }
 
-.hero-subtitle {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(12px, 1.6vw, 16px);
-  letter-spacing: .35em;
-  color: rgba(220, 190, 140, .5);
-  font-weight: 400;
-  margin-bottom: 48px;
+@keyframes show{to{opacity:1;}}
+
+/* ===== HERO ===== */
+.hero{
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+  position:relative;
 }
 
-.hero-buttons {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  justify-content: center;
+.glow{
+  position:absolute;
+  width:700px;
+  height:700px;
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(255,180,100,.35), transparent 65%);
+  filter:blur(60px);
+  animation:pulse 6s infinite;
+  pointer-events:none;
 }
 
-.btn {
-  display: inline-block;
-  padding: 14px 44px;
-  border-radius: 40px;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  transition: all .3s;
-  cursor: pointer;
-  border: none;
-}
-.btn-solid {
-  background: linear-gradient(135deg, #e87830, #f09040);
-  color: #fff;
-  box-shadow: 0 4px 24px rgba(232, 120, 48, .3);
-}
-.btn-solid:hover {
-  box-shadow: 0 6px 32px rgba(232, 120, 48, .45);
-  transform: translateY(-1px);
+@keyframes pulse{
+  0%,100%{transform:scale(1);opacity:.3;}
+  50%{transform:scale(1.25);opacity:1;}
 }
 
-.scroll-hint {
-  position: absolute;
-  bottom: 36px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 6px;
-  height: 6px;
-  background: rgba(220, 180, 120, .4);
-  border-radius: 50%;
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: .3; transform: translateX(-50%) scale(1); }
-  50% { opacity: .8; transform: translateX(-50%) scale(1.5); }
+h1{
+  font-size:clamp(60px,12vw,160px);
+  background:linear-gradient(180deg,#fff,#ffd39a,#ff8a2a);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  letter-spacing:8px;
 }
 
-/* ══════ 第二屏：Showcase ══════ */
-.showcase {
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 80px 40px;
-  max-width: 1300px;
-  margin: 0 auto;
+.domain{
+  margin-top:10px;
+  color:#ffd39a;
+  letter-spacing:5px;
 }
 
-.showcase-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(32px, 5vw, 64px);
-  font-weight: 800;
-  letter-spacing: .06em;
-  line-height: 1.15;
-  background: linear-gradient(
-    180deg,
-    #f0d088 0%,
-    #d4a858 50%,
-    #b88838 100%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 48px;
-  font-style: italic;
+/* ===== BUTTON ===== */
+.btns{
+  margin-top:50px;
+  display:flex;
+  gap:20px;
+  flex-wrap:wrap;
+  justify-content:center;
 }
 
-.cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 80px;
+button{
+  padding:16px 38px;
+  border:none;
+  border-radius:999px;
+  cursor:pointer;
+  font-size:14px;
+  letter-spacing:2px;
+  color:#fff;
+  font-family:'Orbitron',sans-serif;
+  background:linear-gradient(135deg,#ff8a2a,#ff3d00);
+  box-shadow:0 0 40px rgba(255,120,60,.35);
+  transition:.3s;
 }
 
-.card {
-  border: 1px solid rgba(180, 150, 100, .2);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, .02);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  transition: border-color .3s, background .3s;
-  cursor: pointer;
-  padding: 32px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.card:hover {
-  border-color: rgba(220, 170, 80, .4);
-  background: rgba(255, 255, 255, .04);
-}
-.card-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(12px, 1.4vw, 16px);
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: rgba(230, 200, 140, .85);
-  line-height: 1.5;
-}
-.card-arrow {
-  font-size: 12px;
-  color: rgba(230, 200, 140, .4);
+button:hover{
+  transform:scale(1.08) translateY(-5px);
+  box-shadow:0 0 90px rgba(255,140,60,.7);
 }
 
-/* ══════ 弹窗 ══════ */
-.modal-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(5, 5, 5, .8);
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.modal-overlay.active { display: flex; }
-
-.modal-box {
-  position: relative;
-  width: 100%;
-  max-width: 680px;
-  border: 1px solid rgba(210, 160, 60, .35);
-  border-radius: 16px;
-  background: rgba(20, 18, 14, .95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow:
-    0 0 1px rgba(210, 160, 60, .5),
-    0 0 30px rgba(200, 150, 60, .06);
-  padding: 40px 36px 36px;
-  animation: modalIn .25s ease;
-}
-@keyframes modalIn {
-  from { opacity: 0; transform: scale(.96) translateY(10px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+/* ===== 展馆区 ===== */
+.section{
+  padding:140px 8vw;
 }
 
-.modal-title {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 20px;
-  font-weight: 800;
-  font-style: italic;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  background: linear-gradient(180deg, #f0d088 0%, #c89848 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 28px;
+.title{
+  font-size:clamp(40px,6vw,90px);
+  color:#ffb36b;
+  margin-bottom:50px;
 }
 
-.modal-close {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: rgba(200, 180, 140, .5);
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 4px 8px;
-  transition: color .2s;
-}
-.modal-close:hover { color: rgba(230, 200, 140, .9); }
-
-.modal-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  margin-bottom: 10px;
-  border-radius: 10px;
-  background: rgba(30, 28, 22, .8);
-  border-left: 3px solid #e87830;
-  cursor: pointer;
-  transition: background .2s;
-}
-.modal-item:hover { background: rgba(50, 45, 35, .8); }
-.modal-item:last-child { margin-bottom: 0; }
-
-.modal-item-text {
-  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: .06em;
-  color: rgba(220, 200, 160, .85);
+/* ===== 展品卡片 ===== */
+.cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:30px;
 }
 
-.modal-item-icon {
-  font-size: 14px;
-  margin-right: 10px;
-  flex-shrink: 0;
+.card{
+  padding:35px;
+  border-radius:20px;
+  background:rgba(255,255,255,.03);
+  border:1px solid rgba(255,180,120,.2);
+  cursor:pointer;
+  transition:.4s;
+  backdrop-filter:blur(10px);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
 }
 
-.modal-item-arrow {
-  font-size: 11px;
-  color: rgba(220, 200, 160, .4);
+.card:hover{
+  transform:translateY(-15px) scale(1.02);
+  box-shadow:0 0 50px rgba(255,120,60,.2);
 }
 
-/* ══════ 落地页（三级） ══════ */
-.landing-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background: #000;
-  overflow-y: auto;
-}
-.landing-overlay.active { display: block; }
-
-.landing-inner {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 60px 32px 80px;
+.card h3{
+  color:#ffd39a;
+  font-size:22px;
 }
 
-.landing-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: 'Orbitron', sans-serif;
-  font-size: 12px;
-  letter-spacing: .1em;
-  color: rgba(220, 180, 120, .6);
-  cursor: pointer;
-  margin-bottom: 40px;
-  transition: color .2s;
-  background: none;
-  border: none;
-}
-.landing-back:hover { color: rgba(230, 200, 140, .9); }
-
-.landing-category {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 11px;
-  letter-spacing: .25em;
-  text-transform: uppercase;
-  color: rgba(220, 180, 120, .4);
-  margin-bottom: 12px;
+.card-arrow{
+  font-size:14px;
+  color:rgba(255,211,154,.4);
 }
 
-.landing-title {
-  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  font-size: clamp(28px, 5vw, 42px);
-  font-weight: 800;
-  letter-spacing: .06em;
-  background: linear-gradient(180deg, #f0d088 0%, #c89848 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 36px;
-  line-height: 1.2;
+/* ===== FOOTER ===== */
+footer{
+  text-align:center;
+  padding:100px 20px;
 }
 
-.landing-section {
-  margin-bottom: 28px;
+footer h2{
+  font-size:50px;
+  color:#ffb36b;
 }
 
-.landing-label {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 10px;
-  letter-spacing: .2em;
-  text-transform: uppercase;
-  color: rgba(220, 180, 120, .5);
-  margin-bottom: 10px;
+footer p{
+  margin-top:10px;
+  color:rgba(255,255,255,.3);
+  font-size:12px;
+  letter-spacing:3px;
 }
 
-.landing-textarea {
-  width: 100%;
-  min-height: 120px;
-  padding: 16px 18px;
-  border: 1px solid rgba(180, 150, 100, .15);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, .03);
-  color: #e8dcc8;
-  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
-  transition: border-color .3s;
-}
-.landing-textarea:focus {
-  outline: none;
-  border-color: rgba(220, 170, 80, .4);
-}
-.landing-textarea::placeholder {
-  color: rgba(200, 180, 140, .3);
+/* ===== MODAL ===== */
+.modal{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.92);
+  display:none;
+  justify-content:center;
+  align-items:center;
+  z-index:99;
+  padding:24px;
 }
 
-/* ══════ Footer ══════ */
-.footer {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-  padding: 0 40px 60px;
-}
-.footer-domain {
-  font-family: 'Orbitron', sans-serif;
-  font-size: clamp(24px, 3.5vw, 44px);
-  font-weight: 700;
-  background: linear-gradient(180deg, #e8c878, #c0a050);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin-bottom: 8px;
-}
-.footer-copy {
-  font-family: 'Orbitron', sans-serif;
-  font-size: 10px;
-  letter-spacing: .25em;
-  color: rgba(180, 160, 120, .4);
-  text-transform: uppercase;
+.modal.active{display:flex;}
+
+.modal-box{
+  width:min(92%,850px);
+  padding:50px;
+  border-radius:30px;
+  background:rgba(20,10,5,.95);
+  border:1px solid rgba(255,150,80,.3);
+  box-shadow:0 0 120px rgba(255,120,60,.25);
+  position:relative;
+  animation:modalIn .25s ease;
 }
 
-/* ══════ 响应式 ══════ */
-@media (max-width: 768px) {
-  .cards {
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .showcase { padding: 60px 24px; }
-  .btn { padding: 12px 32px; font-size: 11px; }
-  .modal-box { padding: 32px 24px 28px; }
-  .modal-title { font-size: 16px; }
-  .landing-inner { padding: 40px 20px 60px; }
+@keyframes modalIn{
+  from{opacity:0;transform:scale(.96) translateY(10px);}
+  to{opacity:1;transform:scale(1) translateY(0);}
 }
-@media (max-width: 480px) {
-  .cards { grid-template-columns: 1fr; }
-  .hero-buttons { flex-direction: column; align-items: center; }
-  .btn { width: 220px; text-align: center; }
+
+.modal-box h2{
+  font-size:28px;
+  color:#ffb36b;
+  margin-bottom:20px;
+  letter-spacing:3px;
+}
+
+.close{
+  position:absolute;
+  right:25px;
+  top:15px;
+  font-size:28px;
+  cursor:pointer;
+  color:#ffb36b;
+  background:none;
+  border:none;
+  font-family:'Orbitron',sans-serif;
+}
+
+.block{
+  margin-top:12px;
+  padding:14px 18px;
+  border-left:2px solid #ff8a2a;
+  background:rgba(255,255,255,.03);
+  border-radius:10px;
+  line-height:1.8;
+  font-family:'Microsoft YaHei','PingFang SC',sans-serif;
+  font-size:15px;
+  color:rgba(255,255,255,.85);
+  cursor:pointer;
+  transition:background .2s;
+}
+
+.block:hover{background:rgba(255,255,255,.06);}
+
+.block-clickable{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+.block-arrow{
+  font-size:11px;
+  color:rgba(255,211,154,.4);
+  flex-shrink:0;
+  margin-left:12px;
+}
+
+/* ===== 落地页 ===== */
+.landing{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:200;
+  background:#000;
+  overflow-y:auto;
+}
+
+.landing.active{display:block;}
+
+.landing-inner{
+  max-width:800px;
+  margin:0 auto;
+  padding:60px 32px 80px;
+}
+
+.landing-back{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  font-family:'Orbitron',sans-serif;
+  font-size:12px;
+  letter-spacing:2px;
+  color:rgba(255,179,107,.6);
+  cursor:pointer;
+  margin-bottom:40px;
+  transition:color .2s;
+  background:none;
+  border:none;
+}
+
+.landing-back:hover{color:#ffb36b;}
+
+.landing-category{
+  font-family:'Orbitron',sans-serif;
+  font-size:11px;
+  letter-spacing:4px;
+  text-transform:uppercase;
+  color:rgba(255,179,107,.4);
+  margin-bottom:12px;
+}
+
+.landing-title{
+  font-family:'Microsoft YaHei','PingFang SC',sans-serif;
+  font-size:clamp(28px,5vw,42px);
+  font-weight:800;
+  letter-spacing:2px;
+  background:linear-gradient(180deg,#ffd39a,#ff8a2a);
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+  margin-bottom:36px;
+  line-height:1.2;
+}
+
+.landing-section{margin-bottom:28px;}
+
+.landing-label{
+  font-family:'Orbitron',sans-serif;
+  font-size:10px;
+  letter-spacing:4px;
+  text-transform:uppercase;
+  color:rgba(255,179,107,.5);
+  margin-bottom:10px;
+}
+
+.landing-textarea{
+  width:100%;
+  min-height:120px;
+  padding:16px 18px;
+  border:1px solid rgba(255,180,120,.15);
+  border-radius:10px;
+  background:rgba(255,255,255,.03);
+  color:#fff;
+  font-family:'Microsoft YaHei','PingFang SC',sans-serif;
+  font-size:14px;
+  line-height:1.7;
+  resize:vertical;
+  transition:border-color .3s;
+}
+
+.landing-textarea:focus{
+  outline:none;
+  border-color:rgba(255,180,120,.4);
+}
+
+.landing-textarea::placeholder{
+  color:rgba(255,255,255,.2);
+}
+
+/* mobile */
+@media(max-width:768px){
+  .btns{flex-direction:column;align-items:center;}
+  button{width:220px;}
+  .modal-box{padding:32px 24px 28px;}
+  .modal-box h2{font-size:20px;}
+  .landing-inner{padding:40px 20px 60px;}
+  .cards{gap:16px;}
 }
 </style>
 </head>
+
 <body>
 
 <!-- ============================
@@ -491,77 +396,64 @@ canvas#stars {
      ============================ -->
 
 <!-- 开场动画 -->
-<div class="splash" id="splash">
-  <div class="splash-title">LEGEND OF DZI</div>         <!-- ← 开场标题 -->
-  <div class="splash-sub">From the sacred Himalayas</div> <!-- ← 开场副标题 -->
+<div id="intro">
+  <div class="intro-title">LEGEND OF DZI</div>            <!-- ← 开场标题 -->
+  <div class="intro-sub">From the sacred Himalayas</div>  <!-- ← 开场副标题 -->
 </div>
 
-<canvas id="stars"></canvas>
+<!-- Three.js 背景 -->
+<canvas id="bg"></canvas>
 
-<div class="main-content" id="mainContent">
-
-<!-- 第一屏 -->
-<section class="hero">
-  <h1 class="hero-title">西藏天珠</h1>                    <!-- ← 主标题 -->
-  <p class="hero-subtitle">LEGEND OF DZI</p>              <!-- ← 副标题 -->
-  <div class="hero-buttons">
-    <button class="btn btn-solid" onclick="openHeroModal('contact')">CONTACT</button>          <!-- ← 按钮1 -->
-    <button class="btn btn-solid" onclick="openHeroModal('showcase')">ENTER SHOWCASE</button>  <!-- ← 按钮2 -->
+<!-- HERO -->
+<div class="hero">
+  <div class="glow"></div>
+  <h1>西藏天珠</h1>                                        <!-- ← 主标题 -->
+  <div class="domain">LEGEND OF DZI</div>                  <!-- ← 副标题 -->
+  <div class="btns">
+    <button onclick="openHeroModal('contact')">CONTACT</button>          <!-- ← 按钮1 -->
+    <button onclick="openHeroModal('showcase')">ENTER SHOWCASE</button>  <!-- ← 按钮2 -->
   </div>
-  <div class="scroll-hint"></div>
-</section>
+</div>
 
-<!-- 第二屏 -->
-<section class="showcase" id="showcase">
-  <h2 class="showcase-title">LEGEND OF DZI</h2>           <!-- ← 板块标题 -->
+<!-- 展馆区 -->
+<section class="section" id="showcase">
+  <h2 class="title">LEGEND OF DZI</h2>                    <!-- ← 板块标题 -->
   <div class="cards">
-
-    <!-- ═══ 卡片1 ═══ -->
     <div class="card" onclick="openModal(0)">
-      <div class="card-title">ORIGIN RELIC</div>                   <!-- ← 卡片1标题 -->
+      <h3>ORIGIN RELIC</h3>                                <!-- ← 卡片1 -->
       <span class="card-arrow">▶</span>
     </div>
-
-    <!-- ═══ 卡片2 ═══ -->
     <div class="card" onclick="openModal(1)">
-      <div class="card-title">EYE CODE<br>SYSTEM</div>             <!-- ← 卡片2标题 -->
+      <h3>EYE CODE SYSTEM</h3>                             <!-- ← 卡片2 -->
       <span class="card-arrow">▶</span>
     </div>
-
-    <!-- ═══ 卡片3 ═══ -->
     <div class="card" onclick="openModal(2)">
-      <div class="card-title">PROTECTION<br>FIELD</div>            <!-- ← 卡片3标题 -->
+      <h3>PROTECTION FIELD</h3>                            <!-- ← 卡片3 -->
       <span class="card-arrow">▶</span>
     </div>
-
-    <!-- ═══ 卡片4 ═══ -->
     <div class="card" onclick="openModal(3)">
-      <div class="card-title">ENERGY<br>UNIVERSE</div>             <!-- ← 卡片4标题 -->
+      <h3>ENERGY UNIVERSE</h3>                             <!-- ← 卡片4 -->
       <span class="card-arrow">▶</span>
     </div>
-
   </div>
 </section>
 
-<!-- 底部 -->
-<footer class="footer" id="contact">
-  <div class="footer-domain">Legendofdzi.com</div>         <!-- ← 域名 -->
-  <div class="footer-copy">&copy; 2026 IMMERSIVE SHOWCASE SYSTEM</div> <!-- ← 版权 -->
+<footer id="contact">
+  <h2>Legendofdzi.com</h2>                                 <!-- ← 域名 -->
+  <p>&copy; 2026 IMMERSIVE SHOWCASE SYSTEM</p>             <!-- ← 版权 -->
 </footer>
 
-</div><!-- /main-content -->
-
-<!-- 弹窗：通用 -->
-<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
-  <div class="modal-box" onclick="event.stopPropagation()">
-    <button class="modal-close" onclick="closeModal()">X</button>
-    <div class="modal-title" id="modalTitle"></div>
+<!-- 弹窗 -->
+<div class="modal" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <button class="close" onclick="closeModal()">×</button>
+    <h2 id="modalTitle"></h2>
     <div id="modalItems"></div>
   </div>
 </div>
 
-<!-- 落地页：三级内容 -->
-<div class="landing-overlay" id="landingOverlay">
+<!-- 落地页 -->
+<div class="landing" id="landing">
   <div class="landing-inner">
     <button class="landing-back" onclick="closeLanding()">◁ BACK</button>
     <div class="landing-category" id="landingCategory"></div>
@@ -571,109 +463,69 @@ canvas#stars {
 </div>
 
 <script>
-// ══════ 开场动画 ══════
-window.addEventListener('load', () => {
-  setTimeout(() => {
-    document.getElementById('splash').classList.add('fade-out');
-    document.getElementById('mainContent').classList.add('visible');
-  }, 1200);
-  setTimeout(() => {
-    document.getElementById('splash').style.display = 'none';
-  }, 3200);
+// ===== Three.js 3D 星空 =====
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+camera.position.z = 6;
+
+const renderer = new THREE.WebGLRenderer({canvas: document.getElementById('bg'), alpha: true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const geo = new THREE.BufferGeometry();
+const count = 2200;
+const pos = new Float32Array(count * 3);
+
+for (let i = 0; i < count * 3; i++) {
+  pos[i] = (Math.random() - 0.5) * 30;
+}
+
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+const mat = new THREE.PointsMaterial({
+  size: 0.035,
+  color: 0xffb36b,
+  transparent: true,
+  opacity: 0.85
 });
 
-// ══════ 星空粒子（旋转星空） ══════
-const canvas = document.getElementById('stars');
-const ctx = canvas.getContext('2d');
-let w, h, particles = [];
-let cx, cy;
+const points = new THREE.Points(geo, mat);
+scene.add(points);
 
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  w = window.innerWidth;
-  h = window.innerHeight * 3;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  cx = w / 2;
-  cy = h / 2;
+function animate() {
+  requestAnimationFrame(animate);
+  points.rotation.y += 0.0006;
+  renderer.render(scene, camera);
 }
+animate();
 
-function createParticles() {
-  particles = [];
-  const count = Math.floor((w * h) / 1200);
-  const maxDist = Math.hypot(cx, cy) * 1.1;
-  for (let i = 0; i < count; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.pow(Math.random(), 0.6) * maxDist;
-    const big = Math.random() < 0.25;
-    particles.push({
-      angle,
-      dist,
-      r: big ? Math.random() * 3 + 1.8 : Math.random() * 1.2 + 0.3,
-      alpha: big ? Math.random() * 0.5 + 0.5 : Math.random() * 0.35 + 0.15,
-      orbitSpeed: (0.00008 + Math.random() * 0.00025) * (Math.random() < 0.5 ? 1 : -1),
-      flicker: Math.random() * Math.PI * 2,
-      flickerSpeed: Math.random() * 0.6 + 0.2,
-      square: big,
-      hue: 38 + Math.random() * 10,
-      lightness: big ? 65 + Math.random() * 10 : 50 + Math.random() * 15
-    });
-  }
-}
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
-function draw() {
-  ctx.clearRect(0, 0, w, h);
-  const t = Date.now() * 0.001;
-  for (const p of particles) {
-    p.angle += p.orbitSpeed;
-    const x = cx + Math.cos(p.angle) * p.dist;
-    const y = cy + Math.sin(p.angle) * p.dist;
-    if (x < -10 || x > w + 10 || y < -10 || y > h + 10) continue;
-    const a = p.alpha * (0.65 + 0.35 * Math.sin(t * p.flickerSpeed + p.flicker));
-    ctx.fillStyle = `hsla(${p.hue}, 100%, ${p.lightness}%, ${a})`;
-    if (p.square) {
-      const s = p.r * 1.2;
-      ctx.fillRect(x - s / 2, y - s / 2, s, s);
-    } else {
-      ctx.beginPath();
-      ctx.arc(x, y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  requestAnimationFrame(draw);
-}
-
-window.addEventListener('resize', () => { resize(); createParticles(); });
-resize();
-createParticles();
-draw();
-
-// ══════ Hero 按钮弹窗数据 ══════
-// ← 编辑联系方式和入口介绍
+// ===== Hero 按钮弹窗 =====
 const heroModals = {
   contact: {
-    title: 'CONTACT',                                    // ← 联系弹窗标题
+    title: 'CONTACT',
     items: [
-      { icon: '✉', text: 'regal001@hotmail.com' },       // ← 邮箱
-      { icon: '🌐', text: 'Topdonor' },                  // ← 社交账号
-      { icon: '📍', text: 'www.Legendofdzi.com' },        // ← 网站
-      { icon: '◉', text: 'Energy · Destiny · Protection' } // ← 标语
+      {icon: '✉', text: 'regal001@hotmail.com'},
+      {icon: '🌐', text: 'Topdonor'},
+      {icon: '📍', text: 'www.Legendofdzi.com'},
+      {icon: '◉', text: 'Energy · Destiny · Protection'}
     ]
   },
   showcase: {
-    title: 'SHOWCASE ENTRY',                              // ← 展馆弹窗标题
+    title: 'SHOWCASE ENTRY',
     items: [
-      { icon: '', text: '欢迎进入天珠展馆系统' },            // ← 展馆介绍1
-      { icon: '', text: '这是一个关于能量、信仰与结构的沉浸空间' } // ← 展馆介绍2
+      {icon: '', text: '欢迎进入天珠展馆系统'},
+      {icon: '', text: '这是一个关于能量、信仰与结构的沉浸空间'}
     ]
   }
 };
 
-// ══════ 卡片菜单数据 ══════
-// ← 在这里编辑所有菜单内容
+// ===== 卡片菜单数据 =====
 const menuData = [
   {
     title: 'ORIGIN RELIC',
@@ -683,9 +535,9 @@ const menuData = [
         landing: {
           heading: '喜马拉雅文明遗存',
           sections: [
-            { label: 'INTRODUCTION', text: 'Dzi beads are ancient etched agate beads of mysterious origin. They have been found primarily in Tibet, though they can also be found in neighboring Himalayan regions.' },
-            { label: 'HISTORY', text: 'The earliest Dzi beads date back over 2,000 years to the ancient Indus Valley civilization. Their exact origin remains one of archaeology\'s great mysteries.' },
-            { label: 'SIGNIFICANCE', text: 'In Tibetan culture, Dzi beads are considered to be among the most precious and sacred objects. They are believed to bring good fortune, protection, and spiritual power to the wearer.' }
+            {label: 'INTRODUCTION', text: 'Dzi beads are ancient etched agate beads of mysterious origin. They have been found primarily in Tibet, though they can also be found in neighboring Himalayan regions.'},
+            {label: 'HISTORY', text: 'The earliest Dzi beads date back over 2,000 years to the ancient Indus Valley civilization. Their exact origin remains one of archaeology\'s great mysteries.'},
+            {label: 'SIGNIFICANCE', text: 'In Tibetan culture, Dzi beads are considered to be among the most precious and sacred objects. They are believed to bring good fortune, protection, and spiritual power to the wearer.'}
           ]
         }
       },
@@ -694,9 +546,9 @@ const menuData = [
         landing: {
           heading: '被视为天地能量结晶',
           sections: [
-            { label: 'OVERVIEW', text: 'The belief in the divine origin of Dzi beads persists throughout Tibetan and Himalayan cultures. Ancient texts describe them as crystallized energy from the heavens.' },
-            { label: 'SPIRITUAL POWER', text: 'Each Dzi bead is thought to harness cosmic energies, channeling them into protective and healing forces for the bearer.' },
-            { label: 'TRADITIONS', text: 'Generation after generation, Tibetan families pass Dzi beads as sacred heirlooms, preserving spiritual energy across lifetimes.' }
+            {label: 'OVERVIEW', text: 'The belief in the divine origin of Dzi beads persists throughout Tibetan and Himalayan cultures. Ancient texts describe them as crystallized energy from the heavens.'},
+            {label: 'SPIRITUAL POWER', text: 'Each Dzi bead is thought to harness cosmic energies, channeling them into protective and healing forces for the bearer.'},
+            {label: 'TRADITIONS', text: 'Generation after generation, Tibetan families pass Dzi beads as sacred heirlooms, preserving spiritual energy across lifetimes.'}
           ]
         }
       },
@@ -705,8 +557,8 @@ const menuData = [
         landing: {
           heading: '神秘起源传说',
           sections: [
-            { label: 'LEGENDS', text: 'Multiple legends surround the origin of Dzi beads. Some say they fell from the sky as meteorites, others believe they were crafted by ancient gods.' },
-            { label: 'MYTHOLOGY', text: 'In Tibetan mythology, Dzi beads were once living insects that turned to stone when touched by human hands.' }
+            {label: 'LEGENDS', text: 'Multiple legends surround the origin of Dzi beads. Some say they fell from the sky as meteorites, others believe they were crafted by ancient gods.'},
+            {label: 'MYTHOLOGY', text: 'In Tibetan mythology, Dzi beads were once living insects that turned to stone when touched by human hands.'}
           ]
         }
       }
@@ -720,8 +572,8 @@ const menuData = [
         landing: {
           heading: '天珠眼纹图谱',
           sections: [
-            { label: 'EYE PATTERNS', text: 'The number of eyes on a Dzi bead determines its meaning and power. From single-eye to the rare nine-eye, each pattern carries unique significance.' },
-            { label: 'CLASSIFICATION', text: 'Dzi beads are classified by the number, shape, and arrangement of their eye patterns, with each variation holding distinct spiritual meanings.' }
+            {label: 'EYE PATTERNS', text: 'The number of eyes on a Dzi bead determines its meaning and power. From single-eye to the rare nine-eye, each pattern carries unique significance.'},
+            {label: 'CLASSIFICATION', text: 'Dzi beads are classified by the number, shape, and arrangement of their eye patterns, with each variation holding distinct spiritual meanings.'}
           ]
         }
       },
@@ -730,8 +582,8 @@ const menuData = [
         landing: {
           heading: '符号密码解读',
           sections: [
-            { label: 'SYMBOLS', text: 'Beyond eyes, Dzi beads feature various sacred symbols including lightning bolts, lotus flowers, and geometric patterns that encode spiritual knowledge.' },
-            { label: 'DECODING', text: 'Scholars and spiritual practitioners have developed systems for reading the symbolic language etched into genuine Dzi beads.' }
+            {label: 'SYMBOLS', text: 'Beyond eyes, Dzi beads feature various sacred symbols including lightning bolts, lotus flowers, and geometric patterns that encode spiritual knowledge.'},
+            {label: 'DECODING', text: 'Scholars and spiritual practitioners have developed systems for reading the symbolic language etched into genuine Dzi beads.'}
           ]
         }
       },
@@ -740,8 +592,8 @@ const menuData = [
         landing: {
           heading: '珍稀版本收藏',
           sections: [
-            { label: 'RARE EDITIONS', text: 'Certain Dzi bead types are extraordinarily rare. The most valuable specimens command prices exceeding millions of dollars at auction.' },
-            { label: 'COLLECTOR GUIDE', text: 'Authentic ancient Dzi beads display specific weathering patterns, natural mineral deposits, and etching characteristics that distinguish them from reproductions.' }
+            {label: 'RARE EDITIONS', text: 'Certain Dzi bead types are extraordinarily rare. The most valuable specimens command prices exceeding millions of dollars at auction.'},
+            {label: 'COLLECTOR GUIDE', text: 'Authentic ancient Dzi beads display specific weathering patterns, natural mineral deposits, and etching characteristics that distinguish them from reproductions.'}
           ]
         }
       }
@@ -755,8 +607,8 @@ const menuData = [
         landing: {
           heading: '灵性护盾之力',
           sections: [
-            { label: 'PROTECTION', text: 'Dzi beads are traditionally worn as powerful protective talismans. Their spiritual energy is said to create an invisible shield around the wearer.' },
-            { label: 'RITUALS', text: 'Tibetan monks perform consecration ceremonies to activate the protective properties of Dzi beads, chanting mantras to awaken their guardian power.' }
+            {label: 'PROTECTION', text: 'Dzi beads are traditionally worn as powerful protective talismans. Their spiritual energy is said to create an invisible shield around the wearer.'},
+            {label: 'RITUALS', text: 'Tibetan monks perform consecration ceremonies to activate the protective properties of Dzi beads, chanting mantras to awaken their guardian power.'}
           ]
         }
       },
@@ -765,8 +617,8 @@ const menuData = [
         landing: {
           heading: '健康平衡能量',
           sections: [
-            { label: 'HEALING', text: 'In traditional Tibetan medicine, Dzi beads are associated with balancing the body\'s energy centers, promoting physical and mental well-being.' },
-            { label: 'BALANCE', text: 'The harmonizing properties of Dzi beads are believed to align the body\'s chakras, restoring equilibrium and vitality.' }
+            {label: 'HEALING', text: 'In traditional Tibetan medicine, Dzi beads are associated with balancing the body\'s energy centers, promoting physical and mental well-being.'},
+            {label: 'BALANCE', text: 'The harmonizing properties of Dzi beads are believed to align the body\'s chakras, restoring equilibrium and vitality.'}
           ]
         }
       },
@@ -775,8 +627,8 @@ const menuData = [
         landing: {
           heading: '财运福泽加持',
           sections: [
-            { label: 'PROSPERITY', text: 'Certain Dzi bead patterns, particularly those with multiple eyes, are associated with attracting wealth, good fortune, and business success.' },
-            { label: 'BLESSINGS', text: 'The spiritual blessings of Dzi beads extend to all areas of life, with different patterns supporting specific aspirations and goals.' }
+            {label: 'PROSPERITY', text: 'Certain Dzi bead patterns, particularly those with multiple eyes, are associated with attracting wealth, good fortune, and business success.'},
+            {label: 'BLESSINGS', text: 'The spiritual blessings of Dzi beads extend to all areas of life, with different patterns supporting specific aspirations and goals.'}
           ]
         }
       }
@@ -790,8 +642,8 @@ const menuData = [
         landing: {
           heading: '宇宙频率共振',
           sections: [
-            { label: 'FREQUENCY', text: 'Modern researchers have detected measurable electromagnetic frequencies emanating from genuine ancient Dzi beads, suggesting a scientific basis for their reputed power.' },
-            { label: 'RESONANCE', text: 'The unique mineral composition of Dzi beads may create natural resonance patterns that interact with the human body\'s bioelectric field.' }
+            {label: 'FREQUENCY', text: 'Modern researchers have detected measurable electromagnetic frequencies emanating from genuine ancient Dzi beads, suggesting a scientific basis for their reputed power.'},
+            {label: 'RESONANCE', text: 'The unique mineral composition of Dzi beads may create natural resonance patterns that interact with the human body\'s bioelectric field.'}
           ]
         }
       },
@@ -800,8 +652,8 @@ const menuData = [
         landing: {
           heading: '磁场能量检测',
           sections: [
-            { label: 'MEASUREMENT', text: 'Advanced instruments have been used to measure the magnetic field properties of Dzi beads, revealing patterns consistent with their traditional attributed powers.' },
-            { label: 'RESEARCH', text: 'Scientific studies continue to investigate the relationship between Dzi bead composition and their observed effects on the human nervous system.' }
+            {label: 'MEASUREMENT', text: 'Advanced instruments have been used to measure the magnetic field properties of Dzi beads, revealing patterns consistent with their traditional attributed powers.'},
+            {label: 'RESEARCH', text: 'Scientific studies continue to investigate the relationship between Dzi bead composition and their observed effects on the human nervous system.'}
           ]
         }
       },
@@ -810,8 +662,8 @@ const menuData = [
         landing: {
           heading: '冥想修行指引',
           sections: [
-            { label: 'MEDITATION', text: 'Dzi beads are powerful meditation aids. Hold the bead in your palm during seated meditation to deepen your practice and enhance spiritual awareness.' },
-            { label: 'PRACTICE GUIDE', text: 'Begin with five minutes of focused breathing while holding your Dzi bead. Visualize golden light flowing from the bead through your energy channels.' }
+            {label: 'MEDITATION', text: 'Dzi beads are powerful meditation aids. Hold the bead in your palm during seated meditation to deepen your practice and enhance spiritual awareness.'},
+            {label: 'PRACTICE GUIDE', text: 'Begin with five minutes of focused breathing while holding your Dzi bead. Visualize golden light flowing from the bead through your energy channels.'}
           ]
         }
       }
@@ -819,7 +671,7 @@ const menuData = [
   }
 ];
 
-// ══════ 弹窗逻辑 ══════
+// ===== 弹窗逻辑 =====
 let currentCardIndex = -1;
 let currentModalType = '';
 
@@ -833,16 +685,13 @@ function openHeroModal(type) {
   container.innerHTML = '';
   data.items.forEach(item => {
     const el = document.createElement('div');
-    el.className = 'modal-item';
+    el.className = 'block';
     el.style.cursor = 'default';
-    el.innerHTML = `
-      ${item.icon ? '<span class="modal-item-icon">' + item.icon + '</span>' : ''}
-      <span class="modal-item-text">${item.text}</span>
-    `;
+    el.innerHTML = `${item.icon ? item.icon + ' ' : ''}${item.text}`;
     container.appendChild(el);
   });
 
-  document.getElementById('modalOverlay').classList.add('active');
+  document.getElementById('modal').classList.add('active');
   document.body.style.overflow = 'hidden';
 }
 
@@ -856,26 +705,22 @@ function openModal(cardIndex) {
   container.innerHTML = '';
   data.subs.forEach((sub, i) => {
     const item = document.createElement('div');
-    item.className = 'modal-item';
+    item.className = 'block block-clickable';
     item.onclick = () => openLanding(cardIndex, i);
-    item.innerHTML = `
-      <span class="modal-item-text">${sub.name}</span>
-      <span class="modal-item-arrow">▶</span>
-    `;
+    item.innerHTML = `<span>${sub.name}</span><span class="block-arrow">▶</span>`;
     container.appendChild(item);
   });
 
-  document.getElementById('modalOverlay').classList.add('active');
+  document.getElementById('modal').classList.add('active');
   document.body.style.overflow = 'hidden';
 }
 
-function closeModal(e) {
-  if (e && e.target !== e.currentTarget && e.type === 'click') return;
-  document.getElementById('modalOverlay').classList.remove('active');
+function closeModal() {
+  document.getElementById('modal').classList.remove('active');
   document.body.style.overflow = '';
 }
 
-// ══════ 落地页逻辑 ══════
+// ===== 落地页 =====
 function openLanding(cardIndex, subIndex) {
   const card = menuData[cardIndex];
   const sub = card.subs[subIndex];
@@ -896,22 +741,22 @@ function openLanding(cardIndex, subIndex) {
     container.appendChild(section);
   });
 
-  document.getElementById('modalOverlay').classList.remove('active');
-  document.getElementById('landingOverlay').classList.add('active');
-  document.getElementById('landingOverlay').scrollTop = 0;
+  document.getElementById('modal').classList.remove('active');
+  document.getElementById('landing').classList.add('active');
+  document.getElementById('landing').scrollTop = 0;
 }
 
 function closeLanding() {
-  document.getElementById('landingOverlay').classList.remove('active');
+  document.getElementById('landing').classList.remove('active');
   if (currentCardIndex >= 0) openModal(currentCardIndex);
   else document.body.style.overflow = '';
 }
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('landingOverlay').classList.contains('active')) {
+    if (document.getElementById('landing').classList.contains('active')) {
       closeLanding();
-    } else if (document.getElementById('modalOverlay').classList.contains('active')) {
+    } else if (document.getElementById('modal').classList.contains('active')) {
       closeModal();
     }
   }
