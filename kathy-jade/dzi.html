@@ -95,10 +95,9 @@ canvas#stars {
   height: 700px;
   background: radial-gradient(
     ellipse at center,
-    rgba(210, 180, 120, .2) 0%,
-    rgba(190, 155, 90, .08) 30%,
-    rgba(160, 130, 70, .03) 50%,
-    transparent 70%
+    rgba(180, 150, 80, .06) 0%,
+    rgba(150, 120, 60, .02) 40%,
+    transparent 65%
   );
   pointer-events: none;
 }
@@ -120,7 +119,7 @@ canvas#stars {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  filter: drop-shadow(0 0 50px rgba(230, 200, 130, .35)) drop-shadow(0 0 100px rgba(200, 170, 100, .15));
+  filter: drop-shadow(0 0 30px rgba(220, 190, 120, .2));
   margin-bottom: 20px;
 }
 
@@ -615,9 +614,9 @@ function draw() {
   const t = Date.now() * 0.001;
   for (const p of particles) {
     const a = p.alpha * (0.5 + 0.5 * Math.sin(t * p.speed * 12 + p.flicker));
-    const hue = 35 + Math.random() * 15;
-    const lit = p.square ? 72 : 65;
-    ctx.fillStyle = `hsla(${hue}, 50%, ${lit}%, ${a})`;
+    const hue = 38 + Math.random() * 10;
+    const lit = p.square ? 60 : 55;
+    ctx.fillStyle = `hsla(${hue}, 100%, ${lit}%, ${a})`;
     if (p.square) {
       const s = p.r * 1.2;
       ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
